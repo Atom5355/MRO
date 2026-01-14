@@ -2,7 +2,7 @@ name: Deploy to GitHub Pages
 
 on:
   push:
-    branches: [ master ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -25,7 +25,7 @@ jobs:
         run: flutter pub get
       
       - name: Build web
-        run: flutter build web --release --base-href "/mro-engine/"
+        run: flutter build web --release --base-href "/MRO/"
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
