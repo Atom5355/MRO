@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:math' as math;
 
 class GmodLoadingScreen extends StatefulWidget {
   final double progress;
@@ -16,194 +15,230 @@ class GmodLoadingScreen extends StatefulWidget {
 }
 
 class _GmodLoadingScreenState extends State<GmodLoadingScreen>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _rotationController;
+    with TickerProviderStateMixin {
+  late AnimationController _fadeController;
+  late AnimationController _slideController;
+  late AnimationController _dotController;
+  late Animation<double> _fadeAnim;
+  late Animation<Offset> _slideAnim;
 
   @override
   void initState() {
     super.initState();
-    _rotationController = AnimationController(
-      duration: const Duration(seconds: 2),
+
+    _fadeController = AnimationController(
+      duration: const Duration(milliseconds: 1200),
+      vsync: this,
+    )..forward();
+
+    _fadeAnim = CurvedAnimation(
+      parent: _fadeController,
+      curve: Curves.easeOut,
+    );
+
+    _slideController = AnimationController(
+      duration: const Duration(milliseconds: 800),
+      vsync: this,
+    )..forward();
+
+    _slideAnim = Tween<Offset>(
+      begin: const Offset(0, 0.15),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(
+      parent: _slideController,
+      curve: Curves.easeOutCubic,
+    ));
+
+    _dotController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
       vsync: this,
     )..repeat();
   }
 
   @override
   void dispose() {
-    _rotationController.dispose();
+    _fadeController.dispose();
+    _slideController.dispose();
+    _dotController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final pct = (widget.progress * 100).toInt().clamp(0, 100);
+
     return Scaffold(
-      backgroundColor: const Color(0xFF101216),
+      backgroundColor: const Color(0xFF0A0A0A),
       body: Center(
-        child: Container(
-          constraints: const BoxConstraints(maxWidth: 560),
-          padding: const EdgeInsets.all(28),
-          decoration: BoxDecoration(
-            color: const Color(0xFF171B21),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFF2A303A)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 16,
-                offset: const Offset(0, 8),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Title
-              const Text(
-                'MRO ENGINE',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFFD9DEE7),
-                  letterSpacing: 2,
-                ),
-              ),
-              const SizedBox(height: 34),
-
-              // Rotating loader icon
-              AnimatedBuilder(
-                animation: _rotationController,
-                builder: (context, child) {
-                  return Transform.rotate(
-                    angle: _rotationController.value * 2 * math.pi,
-                    child: Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color: const Color(0xFFD9DEE7),
-                          width: 2,
-                        ),
-                        borderRadius: BorderRadius.circular(32),
-                      ),
-                      child: CustomPaint(painter: _LoadingIconPainter()),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
-
-              // Status text
-              Text(
-                widget.status,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF9DA6B5),
-                  fontWeight: FontWeight.w500,
-                  letterSpacing: 0.4,
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Progress bar container
-              Container(
-                height: 34,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1D222B),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFF2A303A), width: 1),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(7),
-                  child: Stack(
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: SlideTransition(
+            position: _slideAnim,
+            child: Container(
+              constraints: const BoxConstraints(maxWidth: 440),
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 48),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Logo mark
+                  Row(
                     children: [
-                      // Progress fill
-                      FractionallySizedBox(
-                        widthFactor: widget.progress.clamp(0.0, 1.0),
-                        alignment: Alignment.centerLeft,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFD9DEE7),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.white.withValues(alpha: 0.2),
-                                blurRadius: 8,
-                              ),
-                            ],
-                          ),
+                      Container(
+                        width: 36,
+                        height: 36,
+                        color: const Color(0xFF3B82F6),
+                        child: const Icon(
+                          Icons.precision_manufacturing,
+                          color: Colors.white,
+                          size: 20,
                         ),
                       ),
-                      // Percentage text
-                      Center(
+                      const SizedBox(width: 12),
+                      const Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'MRO ENGINE',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFFEAEAEA),
+                              letterSpacing: 3,
+                              height: 1,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'PARTS SEARCH SYSTEM',
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF555555),
+                              letterSpacing: 3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 48),
+
+                  // Progress percentage — large display
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        '$pct',
+                        style: const TextStyle(
+                          fontSize: 64,
+                          fontWeight: FontWeight.w900,
+                          color: Color(0xFFEAEAEA),
+                          height: 1,
+                          letterSpacing: -2,
+                        ),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 10),
                         child: Text(
-                          '${(widget.progress * 100).toStringAsFixed(0)}%',
+                          '%',
                           style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: widget.progress > 0.5
-                                ? const Color(0xFF101216)
-                                : const Color(0xFF9DA6B5),
-                            letterSpacing: 0.8,
-                            shadows: widget.progress > 0.5
-                                ? [
-                                    const Shadow(
-                                      color: Color(0x80000000),
-                                      blurRadius: 2,
-                                    ),
-                                  ]
-                                : null,
+                            fontSize: 24,
+                            fontWeight: FontWeight.w300,
+                            color: Color(0xFF555555),
                           ),
                         ),
                       ),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 14),
 
-              // Additional info text
-              Text(
-                'Please wait while we load the MRO database',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: const Color(0xFF8A94A4),
-                  fontWeight: FontWeight.w400,
-                  letterSpacing: 0.2,
-                ),
+                  const SizedBox(height: 20),
+
+                  // Progress bar
+                  Container(
+                    height: 2,
+                    color: const Color(0xFF1A1A1A),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: AnimatedFractionallySizedBox(
+                        duration: const Duration(milliseconds: 300),
+                        curve: Curves.easeOut,
+                        widthFactor: widget.progress.clamp(0.0, 1.0),
+                        child: Container(color: const Color(0xFF3B82F6)),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  // Status row
+                  Row(
+                    children: [
+                      // Animated dots
+                      AnimatedBuilder(
+                        animation: _dotController,
+                        builder: (context, _) {
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: List.generate(3, (i) {
+                              final phase = (_dotController.value * 3 - i).clamp(0.0, 1.0);
+                              final opacity = (phase < 0.5)
+                                  ? phase * 2
+                                  : 2 - phase * 2;
+                              return Container(
+                                width: 4,
+                                height: 4,
+                                margin: const EdgeInsets.only(right: 3),
+                                color: Color.lerp(
+                                  const Color(0xFF222222),
+                                  const Color(0xFF3B82F6),
+                                  opacity.clamp(0.0, 1.0),
+                                ),
+                              );
+                            }),
+                          );
+                        },
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.status.toUpperCase(),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF555555),
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.5,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 48),
+
+                  // Bottom accent line
+                  Container(
+                    height: 1,
+                    color: const Color(0xFF1A1A1A),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Initializing database and search indices...',
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: Color(0xFF333333),
+                      fontWeight: FontWeight.w400,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
-}
-
-class _LoadingIconPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xFFD9DEE7)
-      ..style = PaintingStyle.fill;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-
-    // Draw segments (like a gear)
-    for (var i = 0; i < 8; i++) {
-      final angle = (i * math.pi / 4);
-      final x = center.dx + radius * 0.6 * math.cos(angle);
-      final y = center.dy + radius * 0.6 * math.sin(angle);
-      canvas.drawCircle(Offset(x, y), radius * 0.15, paint);
-    }
-
-    // Draw center circle
-    canvas.drawCircle(center, radius * 0.25, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

@@ -1,0 +1,362 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
+import '../models/mro_part.dart';
+import 'auth_service.dart';
+
+/// Represents an item in a parts list with quantity
+class ListItem {
+  final String partId;
+  final String itemName;
+  final String legacyCode;
+  final String description;
+  final String manufacturer;
+  final String manufacturerPartNumber;
+  final String supplierPartNumber;
+  final String location;
+  final double unitCost;
+  int quantity;
+
+  ListItem({
+    required this.partId,
+    required this.itemName,
+    this.legacyCode = '',
+    this.description = '',
+    this.manufacturer = '',
+    this.manufacturerPartNumber = '',
+    this.supplierPartNumber = '',
+    this.location = '',
+    this.unitCost = 0.0,
+    this.quantity = 1,
+  });
+
+  double get lineTotal => unitCost * quantity;
+
+  Map<String, dynamic> toMap() => {
+        'partId': partId,
+        'itemName': itemName,
+        'legacyCode': legacyCode,
+        'description': description,
+        'manufacturer': manufacturer,
+        'manufacturerPartNumber': manufacturerPartNumber,
+        'supplierPartNumber': supplierPartNumber,
+        'location': location,
+        'unitCost': unitCost,
+        'quantity': quantity,
+      };
+
+  factory ListItem.fromMap(Map<String, dynamic> m) => ListItem(
+        partId: m['partId'] ?? '',
+        itemName: m['itemName'] ?? '',
+        legacyCode: m['legacyCode'] ?? '',
+        description: m['description'] ?? '',
+        manufacturer: m['manufacturer'] ?? '',
+        manufacturerPartNumber: m['manufacturerPartNumber'] ?? '',
+        supplierPartNumber: m['supplierPartNumber'] ?? '',
+        location: m['location'] ?? '',
+        unitCost: (m['unitCost'] as num?)?.toDouble() ?? 0.0,
+        quantity: (m['quantity'] as num?)?.toInt() ?? 1,
+      );
+
+  factory ListItem.fromPart(MroPart part) {
+    final id = part.legacyCode.isNotEmpty
+        ? part.legacyCode
+        : '${part.itemName}_${part.manufacturerPartNumber}';
+    return ListItem(
+      partId: id,
+      itemName: part.itemName,
+      legacyCode: part.legacyCode,
+      description: part.description,
+      manufacturer: part.manufacturer,
+      manufacturerPartNumber: part.manufacturerPartNumber,
+      supplierPartNumber: part.supplierPartNumber,
+      location: part.location,
+      unitCost: part.unitCost,
+    );
+  }
+
+  String get displayName => itemName.isNotEmpty ? itemName : legacyCode;
+}
+
+/// Represents a user-created parts list
+class PartsList {
+  final String id;
+  String name;
+  final DateTime createdAt;
+  DateTime updatedAt;
+  List<ListItem> items;
+
+  PartsList({
+    required this.id,
+    required this.name,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    List<ListItem>? items,
+  })  : createdAt = createdAt ?? DateTime.now(),
+        updatedAt = updatedAt ?? DateTime.now(),
+        items = items ?? [];
+
+  int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
+  int get uniqueItemCount => items.length;
+  double get totalCost => items.fold(0.0, (sum, i) => sum + i.lineTotal);
+
+  bool containsPart(MroPart part) {
+    final id = part.legacyCode.isNotEmpty
+        ? part.legacyCode
+        : '${part.itemName}_${part.manufacturerPartNumber}';
+    return items.any((i) => i.partId == id);
+  }
+
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'createdAt': Timestamp.fromDate(createdAt),
+        'updatedAt': Timestamp.fromDate(updatedAt),
+        'items': items.map((i) => i.toMap()).toList(),
+      };
+
+  factory PartsList.fromDoc(DocumentSnapshot doc) {
+    final d = doc.data() as Map<String, dynamic>;
+    return PartsList(
+      id: doc.id,
+      name: d['name'] ?? 'Untitled',
+      createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      updatedAt: (d['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      items: (d['items'] as List<dynamic>?)
+              ?.map((e) => ListItem.fromMap(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+    );
+  }
+}
+
+/// Service for managing user-created parts lists in Firestore.
+/// Replaces the old CartService.
+class ListService extends ChangeNotifier {
+  static final ListService _instance = ListService._internal();
+  factory ListService() => _instance;
+  ListService._internal();
+
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final AuthService _auth = AuthService();
+
+  List<PartsList> _lists = [];
+  String? _activeListId;
+
+  /// All user lists
+  List<PartsList> get lists => List.unmodifiable(_lists);
+
+  /// Currently active list (for quick-add from search)
+  PartsList? get activeList {
+    if (_activeListId == null) return _lists.isNotEmpty ? _lists.first : null;
+    return _lists.where((l) => l.id == _activeListId).firstOrNull;
+  }
+
+  String? get activeListId => _activeListId;
+
+  set activeListId(String? id) {
+    _activeListId = id;
+    notifyListeners();
+  }
+
+  /// Firestore collection ref for this user
+  CollectionReference get _listsRef =>
+      _firestore.collection('users').doc(_auth.uid).collection('lists');
+
+  /// Load all lists from Firestore
+  Future<void> loadLists() async {
+    if (!_auth.isLoggedIn) {
+      _lists = [];
+      notifyListeners();
+      return;
+    }
+    try {
+      final snap =
+          await _listsRef.orderBy('updatedAt', descending: true).get();
+      _lists = snap.docs.map((d) => PartsList.fromDoc(d)).toList();
+
+      // Set active list if none set
+      if (_activeListId == null && _lists.isNotEmpty) {
+        _activeListId = _lists.first.id;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error loading lists: $e');
+    }
+  }
+
+  /// Create a new list
+  Future<PartsList?> createList(String name) async {
+    if (!_auth.isLoggedIn) return null;
+    try {
+      final newList = PartsList(
+        id: '', // will be set after doc creation
+        name: name.trim().isEmpty ? 'Untitled List' : name.trim(),
+      );
+      final docRef = await _listsRef.add(newList.toMap());
+      final created = PartsList(
+        id: docRef.id,
+        name: newList.name,
+        createdAt: newList.createdAt,
+        updatedAt: newList.updatedAt,
+        items: [],
+      );
+      _lists.insert(0, created);
+      _activeListId = created.id;
+      notifyListeners();
+      return created;
+    } catch (e) {
+      debugPrint('Error creating list: $e');
+      return null;
+    }
+  }
+
+  /// Rename a list
+  Future<void> renameList(String listId, String newName) async {
+    try {
+      await _listsRef.doc(listId).update({
+        'name': newName.trim(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      final idx = _lists.indexWhere((l) => l.id == listId);
+      if (idx >= 0) {
+        _lists[idx].name = newName.trim();
+        _lists[idx].updatedAt = DateTime.now();
+        notifyListeners();
+      }
+    } catch (e) {
+      debugPrint('Error renaming list: $e');
+    }
+  }
+
+  /// Delete a list
+  Future<void> deleteList(String listId) async {
+    try {
+      await _listsRef.doc(listId).delete();
+      _lists.removeWhere((l) => l.id == listId);
+      if (_activeListId == listId) {
+        _activeListId = _lists.isNotEmpty ? _lists.first.id : null;
+      }
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Error deleting list: $e');
+    }
+  }
+
+  /// Add a part to a specific list
+  Future<void> addToList(String listId, MroPart part, {int quantity = 1}) async {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return;
+
+    final list = _lists[idx];
+    final partId = part.legacyCode.isNotEmpty
+        ? part.legacyCode
+        : '${part.itemName}_${part.manufacturerPartNumber}';
+
+    final existingIdx = list.items.indexWhere((i) => i.partId == partId);
+    if (existingIdx >= 0) {
+      list.items[existingIdx].quantity += quantity;
+    } else {
+      list.items.add(ListItem.fromPart(part));
+    }
+    list.updatedAt = DateTime.now();
+    notifyListeners();
+    await _saveList(listId);
+  }
+
+  /// Add part to active list (convenience)
+  Future<void> addToActiveList(MroPart part, {int quantity = 1}) async {
+    final list = activeList;
+    if (list == null) {
+      // Auto-create a list
+      final created = await createList('My Parts');
+      if (created != null) {
+        await addToList(created.id, part, quantity: quantity);
+      }
+      return;
+    }
+    await addToList(list.id, part, quantity: quantity);
+  }
+
+  /// Remove a part from a list
+  Future<void> removeFromList(String listId, String partId) async {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return;
+
+    _lists[idx].items.removeWhere((i) => i.partId == partId);
+    _lists[idx].updatedAt = DateTime.now();
+    notifyListeners();
+    await _saveList(listId);
+  }
+
+  /// Update quantity
+  Future<void> updateQuantity(
+      String listId, String partId, int quantity) async {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return;
+
+    final itemIdx =
+        _lists[idx].items.indexWhere((i) => i.partId == partId);
+    if (itemIdx < 0) return;
+
+    if (quantity <= 0) {
+      _lists[idx].items.removeAt(itemIdx);
+    } else {
+      _lists[idx].items[itemIdx].quantity = quantity;
+    }
+    _lists[idx].updatedAt = DateTime.now();
+    notifyListeners();
+    await _saveList(listId);
+  }
+
+  /// Check if a part is in the active list
+  bool isInActiveList(MroPart part) {
+    final list = activeList;
+    if (list == null) return false;
+    return list.containsPart(part);
+  }
+
+  /// Get quantity for a part in active list
+  int getQuantityInActiveList(MroPart part) {
+    final list = activeList;
+    if (list == null) return 0;
+    final partId = part.legacyCode.isNotEmpty
+        ? part.legacyCode
+        : '${part.itemName}_${part.manufacturerPartNumber}';
+    final item = list.items.where((i) => i.partId == partId).firstOrNull;
+    return item?.quantity ?? 0;
+  }
+
+  /// Get quantity for a part in a specific list
+  int getQuantityInList(String listId, MroPart part) {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return 0;
+    final partId = part.legacyCode.isNotEmpty
+        ? part.legacyCode
+        : '${part.itemName}_${part.manufacturerPartNumber}';
+    final item = _lists[idx].items.where((i) => i.partId == partId).firstOrNull;
+    return item?.quantity ?? 0;
+  }
+
+  /// Clear all items from a list
+  Future<void> clearList(String listId) async {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return;
+    _lists[idx].items.clear();
+    _lists[idx].updatedAt = DateTime.now();
+    notifyListeners();
+    await _saveList(listId);
+  }
+
+  /// Persist list to Firestore
+  Future<void> _saveList(String listId) async {
+    final idx = _lists.indexWhere((l) => l.id == listId);
+    if (idx < 0) return;
+    try {
+      await _listsRef.doc(listId).update({
+        'items': _lists[idx].items.map((i) => i.toMap()).toList(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      debugPrint('Error saving list: $e');
+    }
+  }
+}

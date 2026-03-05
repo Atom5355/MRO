@@ -25,7 +25,7 @@ jobs:
         run: flutter pub get
       
       - name: Build web
-        run: flutter build web --release --base-href "/MRO/"
+        run: flutter build web --release --no-tree-shake-icons --base-href "/MRO/"
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

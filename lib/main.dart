@@ -1,10 +1,22 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'screens/search_screen.dart';
 import 'screens/loading_screen.dart';
 import 'services/mro_data_service.dart';
+import 'services/auth_service.dart';
+import 'services/list_service.dart';
 import 'theme/app_theme.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  await AuthService().init();
+  if (AuthService().isLoggedIn) {
+    await ListService().loadLists();
+  }
   runApp(const MroEngineApp());
 }
 

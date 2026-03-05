@@ -1,70 +1,13 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
 import '../services/mro_data_service.dart';
 import '../services/advanced_search_service.dart';
 import '../services/ai_search_service.dart' show AISearchService, TokenUsage;
-import '../services/cart_service.dart';
-import 'cart_screen.dart';
-
-/// Widget that adds white neon glow effect on hover
-class HoverGlowWrapper extends StatefulWidget {
-  final Widget child;
-  final VoidCallback onTap;
-  final double borderRadius;
-
-  const HoverGlowWrapper({
-    super.key,
-    required this.child,
-    required this.onTap,
-    this.borderRadius = 16,
-  });
-
-  @override
-  State<HoverGlowWrapper> createState() => _HoverGlowWrapperState();
-}
-
-class _HoverGlowWrapperState extends State<HoverGlowWrapper> {
-  bool _isHovering = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _isHovering = true),
-      onExit: (_) => setState(() => _isHovering = false),
-      cursor: SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(widget.borderRadius),
-            border: Border.all(
-              color: _isHovering 
-                  ? Colors.white.withValues(alpha: 0.6)
-                  : Colors.transparent,
-              width: 2,
-            ),
-            boxShadow: _isHovering
-                ? [
-                    BoxShadow(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      blurRadius: 20,
-                      spreadRadius: 2,
-                    ),
-                  ]
-                : [],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(widget.borderRadius),
-            child: widget.child,
-          ),
-        ),
-      ),
-    );
-  }
-}
+import '../services/list_service.dart';
+import '../services/auth_service.dart';
+import 'lists_screen.dart';
+import 'auth_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -75,15 +18,24 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen>
     with TickerProviderStateMixin {
-  // Brand color - White Semi-Neon
-  static const Color _maroonColor = Color(0xCCFFFFFF);
-  
+  // ── Design tokens ─────────────────────────────────────────────────────
+  static const Color _accent = Color(0xFF3B82F6);
+  static const Color _accentDim = Color(0xFF1D4ED8);
+  static const Color _surface = Color(0xFF0A0A0A);
+  static const Color _surfaceRaised = Color(0xFF141414);
+  static const Color _border = Color(0xFF222222);
+  static const Color _text = Color(0xFFEAEAEA);
+  static const Color _textDim = Color(0xFF777777);
+
+  // ── Services ──────────────────────────────────────────────────────────
   final MroDataService _dataService = MroDataService();
   final AdvancedSearchService _searchService = AdvancedSearchService();
   final TextEditingController _searchController = TextEditingController();
   final AISearchService _aiSearchService = AISearchService();
-  final CartService _cartService = CartService();
+  final ListService _listService = ListService();
+  final AuthService _authService = AuthService();
 
+  // ── State ─────────────────────────────────────────────────────────────
   List<SearchResult> _searchResults = [];
   List<SearchResult> _filteredResults = [];
   bool _isLoading = true;
@@ -95,7 +47,7 @@ class _SearchScreenState extends State<SearchScreen>
   TokenUsage? _tokenUsage;
 
   // Filter state
-  bool _showFilters = true;
+  bool _filterDrawerOpen = false;
   final Map<String, List<String>> _activeFilters = {
     'description': [],
     'manufacturerPartNumber': [],
@@ -104,69 +56,44 @@ class _SearchScreenState extends State<SearchScreen>
   final Map<String, TextEditingController> _filterControllers = {};
   final Map<String, FocusNode> _filterFocusNodes = {};
 
-  // Manufacturer search filter state
   final TextEditingController _manufacturerSearchController =
       TextEditingController();
   final Set<String> _selectedManufacturers = {};
   String _manufacturerSearchQuery = '';
 
-  // Legacy code search filter state
   final TextEditingController _legacyCodeSearchController =
       TextEditingController();
   final Set<String> _selectedLegacyCodes = {};
   String _legacyCodeSearchQuery = '';
 
-    // W part number multi-select filter state
-    final TextEditingController _wPartNumberSearchController =
+  final TextEditingController _wPartNumberSearchController =
       TextEditingController();
-    final Set<String> _selectedWPartNumbers = {};
-    String _wPartNumberSearchQuery = '';
+  final Set<String> _selectedWPartNumbers = {};
+  String _wPartNumberSearchQuery = '';
 
-  // Notification state
+  // Notification
   String? _notificationMessage;
   IconData? _notificationIcon;
   late AnimationController _notificationController;
   late Animation<double> _notificationAnimation;
 
-  // Animation controllers
-  late AnimationController _backgroundController;
+  // AI badge pulse
   late AnimationController _pulseController;
-  late AnimationController _loadingController;
-  late Animation<double> _pulseAnimation;
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
 
   @override
   void initState() {
     super.initState();
-
-    // Initialize filter controllers and focus nodes
     for (final field in _activeFilters.keys) {
       _filterControllers[field] = TextEditingController();
       _filterFocusNodes[field] = FocusNode();
     }
-
-    // Background animation
-    _backgroundController = AnimationController(
-      duration: const Duration(seconds: 20),
-      vsync: this,
-    )..repeat();
-
-    // Pulse animation for AI indicator
     _pulseController = AnimationController(
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 2000),
       vsync: this,
     )..repeat(reverse: true);
 
-    _pulseAnimation = Tween<double>(begin: 0.8, end: 1.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-
-    // Loading animation
-    _loadingController = AnimationController(
-      duration: const Duration(milliseconds: 1000),
-      vsync: this,
-    )..repeat();
-
-    // Notification animation
     _notificationController = AnimationController(
       duration: const Duration(milliseconds: 300),
       vsync: this,
@@ -176,25 +103,21 @@ class _SearchScreenState extends State<SearchScreen>
       curve: Curves.easeOutCubic,
     );
 
-    // Listen to cart changes
-    _cartService.addListener(_onCartChanged);
-
-    // Data should already be loaded by AppInitializer
+    _listService.addListener(_onListChanged);
     _initializeFromLoadedData();
   }
 
-  void _onCartChanged() {
-    setState(() {});
+  void _onListChanged() {
+    if (mounted) setState(() {});
   }
 
-  void _showNotification(String message, {IconData icon = Icons.check_circle}) {
+  void _showNotification(String message,
+      {IconData icon = Icons.check_circle}) {
     setState(() {
       _notificationMessage = message;
       _notificationIcon = icon;
     });
     _notificationController.forward(from: 0);
-
-    // Auto-hide after 3 seconds
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted && _notificationMessage == message) {
         _notificationController.reverse().then((_) {
@@ -212,33 +135,29 @@ class _SearchScreenState extends State<SearchScreen>
   @override
   void dispose() {
     _searchController.dispose();
-    _backgroundController.dispose();
     _pulseController.dispose();
-    _loadingController.dispose();
     _notificationController.dispose();
     _manufacturerSearchController.dispose();
     _legacyCodeSearchController.dispose();
     _wPartNumberSearchController.dispose();
-    _cartService.removeListener(_onCartChanged);
-    for (final controller in _filterControllers.values) {
-      controller.dispose();
+    _listService.removeListener(_onListChanged);
+    for (final c in _filterControllers.values) {
+      c.dispose();
     }
-    for (final focusNode in _filterFocusNodes.values) {
-      focusNode.dispose();
+    for (final f in _filterFocusNodes.values) {
+      f.dispose();
     }
     super.dispose();
   }
 
   void _initializeFromLoadedData() {
     if (!_dataService.isLoaded) {
-      // This shouldn't happen since AppInitializer should load data first
       setState(() {
         _error = 'Data not loaded. Please restart the app.';
         _isLoading = false;
       });
       return;
     }
-
     setState(() {
       _isLoading = false;
       _searchResults = _dataService.parts
@@ -249,7 +168,6 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   void _playSound(String type) {
-    // Haptic feedback for web/mobile
     switch (type) {
       case 'tap':
         HapticFeedback.lightImpact();
@@ -263,58 +181,45 @@ class _SearchScreenState extends State<SearchScreen>
     }
   }
 
+  // ── Filter logic ──────────────────────────────────────────────────────
+
   void _applyFilters() {
     List<SearchResult> results = List.from(_searchResults);
-
-    // Apply manufacturer filter (OR logic - matches ANY selected)
     if (_selectedManufacturers.isNotEmpty) {
-      results = results.where((r) {
-        return _selectedManufacturers.contains(r.part.manufacturer);
-      }).toList();
+      results = results
+          .where((r) => _selectedManufacturers.contains(r.part.manufacturer))
+          .toList();
     }
-
-    // Apply legacy code filter (OR logic - matches ANY selected)
     if (_selectedLegacyCodes.isNotEmpty) {
-      results = results.where((r) {
-        return _selectedLegacyCodes.contains(r.part.legacyCode);
-      }).toList();
+      results = results
+          .where((r) => _selectedLegacyCodes.contains(r.part.legacyCode))
+          .toList();
     }
-
     if (_selectedWPartNumbers.isNotEmpty) {
       results = results.where((r) {
-        final partWNumbers = _extractWPartNumbers(r.part);
-        return partWNumbers.any(_selectedWPartNumbers.contains);
+        final w = _extractWPartNumbers(r.part);
+        return w.any(_selectedWPartNumbers.contains);
       }).toList();
     }
-
-    // Apply other filters (AND logic within each field)
     for (final entry in _activeFilters.entries) {
       final field = entry.key;
       final tags = entry.value;
-
       if (tags.isEmpty) continue;
-
       results = results.where((r) {
-        final fieldValue = _getFieldValue(r.part, field).toLowerCase();
-        return tags.every((tag) => fieldValue.contains(tag.toLowerCase()));
+        final v = _getFieldValue(r.part, field).toLowerCase();
+        return tags.every((t) => v.contains(t.toLowerCase()));
       }).toList();
     }
-
-    setState(() {
-      _filteredResults = results;
-    });
+    setState(() => _filteredResults = results);
   }
 
   Set<String> _extractWPartNumbers(MroPart part) {
-    final values = <String>{
+    return <String>{
       part.itemName.trim(),
       part.manufacturerPartNumber.trim(),
       part.supplierPartNumber.trim(),
-    };
-
-    return values
-        .where((value) => value.isNotEmpty)
-        .where((value) => value.toLowerCase().startsWith('w'))
+    }
+        .where((v) => v.isNotEmpty && v.toLowerCase().startsWith('w'))
         .toSet();
   }
 
@@ -337,8 +242,6 @@ class _SearchScreenState extends State<SearchScreen>
     switch (field) {
       case 'description':
         return 'Description';
-      case 'manufacturer':
-        return 'Manufacturer';
       case 'manufacturerPartNumber':
         return 'MPN';
       case 'location':
@@ -351,43 +254,33 @@ class _SearchScreenState extends State<SearchScreen>
   void _addFilter(String field, String tag) {
     if (tag.trim().isEmpty) return;
     _playSound('tap');
-    final normalizedTag = tag.trim().toLowerCase();
-
-    if (!_activeFilters[field]!.contains(normalizedTag)) {
-      setState(() {
-        _activeFilters[field]!.add(normalizedTag);
-      });
+    final t = tag.trim().toLowerCase();
+    if (!_activeFilters[field]!.contains(t)) {
+      setState(() => _activeFilters[field]!.add(t));
       _filterControllers[field]?.clear();
       _applyFilters();
     }
-    // Keep focus in the input field for quick tag entry
-    Future.microtask(() {
-      _filterFocusNodes[field]?.requestFocus();
-    });
+    Future.microtask(() => _filterFocusNodes[field]?.requestFocus());
   }
 
   void _clearFieldFilters(String field) {
     if (_activeFilters[field]!.isEmpty) return;
     _playSound('tap');
-    setState(() {
-      _activeFilters[field]!.clear();
-    });
+    setState(() => _activeFilters[field]!.clear());
     _applyFilters();
   }
 
   void _removeFilter(String field, String tag) {
     _playSound('tap');
-    setState(() {
-      _activeFilters[field]!.remove(tag);
-    });
+    setState(() => _activeFilters[field]!.remove(tag));
     _applyFilters();
   }
 
   void _clearAllFilters() {
     _playSound('tap');
     setState(() {
-      for (final field in _activeFilters.keys) {
-        _activeFilters[field]!.clear();
+      for (final f in _activeFilters.keys) {
+        _activeFilters[f]!.clear();
       }
       _selectedManufacturers.clear();
       _manufacturerSearchController.clear();
@@ -402,184 +295,49 @@ class _SearchScreenState extends State<SearchScreen>
     _applyFilters();
   }
 
-  int get _totalActiveFilters {
-    return _activeFilters.values.fold(0, (sum, tags) => sum + tags.length) +
-        _selectedManufacturers.length +
+  int get _totalActiveFilters =>
+      _activeFilters.values.fold(0, (s, t) => s + t.length) +
+      _selectedManufacturers.length +
       _selectedLegacyCodes.length +
       _selectedWPartNumbers.length;
-  }
+
+  // ── Search logic ──────────────────────────────────────────────────────
 
   Future<void> _confirmAndSearch(String query) async {
     if (_totalActiveFilters > 0) {
       final shouldClear = await showDialog<bool>(
         context: context,
-        builder: (context) => _buildClearFiltersDialog(),
+        builder: (_) => _buildClearFiltersDialog(),
       );
       if (shouldClear == true) {
         _clearAllFilters();
       } else if (shouldClear == null) {
-        return; // Cancelled
+        return;
       }
     }
     _performSearch(query);
   }
 
-  Widget _buildClearFiltersDialog() {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: _buildGlassContainer(
-        padding: const EdgeInsets.all(24),
-        borderRadius: 20,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _maroonColor,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: const Icon(
-                  Icons.filter_alt_off,
-                  color: Colors.white,
-                  size: 32,
-                ),
-              ),
-              const SizedBox(height: 20),
-              const Text(
-                'Clear Filters?',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                'You have $_totalActiveFilters active filter${_totalActiveFilters == 1 ? '' : 's'}. Would you like to clear them before searching?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.7),
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(context),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.2),
-                            ),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'Cancel',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(context, false),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _maroonColor.withValues(alpha: 0.5),
-                            ),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'Keep Filters',
-                              style: TextStyle(
-                                color: _maroonColor,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => Navigator.pop(context, true),
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          decoration: BoxDecoration(
-                            color: _maroonColor,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              'Clear All',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
   Future<void> _performSearch(String query) async {
     if (_isSearching) return;
     _playSound('search');
-
     setState(() {
       _isSearching = true;
       _hasSearched = query.isNotEmpty;
       _aiInterpretation = null;
       _tokenUsage = null;
     });
-
     try {
       if (query.isEmpty) {
         setState(() {
           _searchResults = _dataService.parts
-              .map((p) => SearchResult(part: p, score: 1.0, matchReasons: []))
+              .map(
+                  (p) => SearchResult(part: p, score: 1.0, matchReasons: []))
               .toList();
         });
       } else if (_useAI && _aiSearchService.isAvailable) {
-        final result = await _aiSearchService.search(_dataService.parts, query);
+        final result =
+            await _aiSearchService.search(_dataService.parts, query);
         setState(() {
           _searchResults = result.results;
           if (result.aiInterpretation != null) {
@@ -600,2542 +358,575 @@ class _SearchScreenState extends State<SearchScreen>
       });
       _applyFilters();
     } finally {
-      setState(() {
-        _isSearching = false;
-      });
+      setState(() => _isSearching = false);
     }
   }
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // BUILD
+  // ═══════════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _surface,
       body: Stack(
         children: [
-          // Solid background with falling snow
-          _buildAnimatedBackground(),
-          // Main content
-          SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(),
-                _buildSearchBar(),
-                Expanded(
-                  child: Row(
-                    children: [
-                      if (_showFilters) _buildFilterPanel(),
-                      Expanded(child: _buildContent()),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+          Column(
+            children: [
+              _buildTopNavBar(),
+              if (_aiInterpretation != null && _useAI) _buildAIBanner(),
+              if (_tokenUsage != null && _useAI) _buildTokenRow(),
+              Expanded(child: _buildBody()),
+            ],
           ),
+          if (_notificationMessage != null) _buildToast(),
+          if (_filterDrawerOpen) _buildFilterOverlay(),
         ],
       ),
     );
   }
 
-  Widget _buildAnimatedBackground() {
-    return Stack(
-      children: [
-        // Solid charcoal background
-        Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF2A2A2A), // Dark gray/charcoal
-          ),
-        ),
-        // Falling snow animation
-        ...List.generate(30, (index) {
-          final random = math.Random(index);
-          final delay = random.nextDouble() * 5;
-          final duration = 8 + random.nextDouble() * 4;
-          final startX = random.nextDouble();
-          final size = 2 + random.nextDouble() * 3;
-          final opacity = 0.3 + random.nextDouble() * 0.4;
-          
-          return AnimatedBuilder(
-            animation: _backgroundController,
-            builder: (context, child) {
-              final progress = (_backgroundController.value * duration + delay) % duration / duration;
-              final y = progress;
-              final drift = math.sin(progress * math.pi * 2 * (1 + index % 3)) * 30;
-              
-              return Positioned(
-                left: MediaQuery.of(context).size.width * startX + drift,
-                top: MediaQuery.of(context).size.height * y,
-                child: Container(
-                  width: size,
-                  height: size,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: opacity),
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              );
-            },
-          );
-        }),
-      ],
-    );
-  }
+  // ── Top navigation bar ────────────────────────────────────────────────
 
-  Widget _buildGlassContainer({
-    required Widget child,
-    EdgeInsets? padding,
-    EdgeInsets? margin,
-    double borderRadius = 20,
-  }) {
+  Widget _buildTopNavBar() {
     return Container(
-      margin: margin,
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(borderRadius),
-          color: const Color(0xFF171B21),
-          border: Border.all(
-            color: const Color(0xFF2A303A),
-            width: 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.18),
-              blurRadius: 14,
-              offset: const Offset(0, 6),
-            ),
-          ],
-        ),
-        child: child,
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
-      child: Row(
-        children: [
-          // Logo and title
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: _maroonColor,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF505050).withValues(alpha: 0.4),
-                      blurRadius: 20,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
+      color: _surfaceRaised,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Row 1: brand + actions
+            Row(
+              children: [
+                // Logo
+                Container(
+                  width: 28,
+                  height: 28,
+                  color: _accent,
+                  child: const Icon(Icons.precision_manufacturing,
+                      color: Colors.white, size: 16),
                 ),
-                child: const Icon(
-                  Icons.precision_manufacturing,
-                  color: Colors.white,
-                  size: 28,
+                const SizedBox(width: 8),
+                const Text('MRO',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: _text,
+                        letterSpacing: 2)),
+                const SizedBox(width: 3),
+                Text('ENGINE',
+                    style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w300,
+                        color: _textDim,
+                        letterSpacing: 2)),
+                const SizedBox(width: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  color: _border,
+                  child: Text(
+                    _isLoading ? '...' : '${_dataService.parts.length} parts',
+                    style: const TextStyle(
+                        fontSize: 9,
+                        color: _textDim,
+                        fontWeight: FontWeight.w600),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'MRO Engine',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  Text(
-                    _isLoading
-                        ? 'Loading...'
-                        : '${_dataService.parts.length} parts',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white.withValues(alpha: 0.6),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          const Spacer(),
-          // AI Toggle
-          AnimatedBuilder(
-            animation: _pulseAnimation,
-            builder: (context, child) {
-              return Transform.scale(
-                scale: _useAI ? _pulseAnimation.value : 1.0,
-                child: _buildGlassContainer(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  borderRadius: 30,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Switch(
-                        value: _useAI,
-                        onChanged: (v) {
-                          _playSound('tap');
-                          setState(() => _useAI = v);
-                        },
-                        activeThumbColor: _maroonColor,
-                        activeTrackColor: _maroonColor.withValues(alpha: 0.3),
-                        inactiveThumbColor: Colors.grey,
-                        inactiveTrackColor: Colors.grey.withValues(alpha: 0.3),
+                const Spacer(),
+                // AI toggle
+                _navButton(
+                  onTap: () {
+                    _playSound('tap');
+                    setState(() => _useAI = !_useAI);
+                  },
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    AnimatedBuilder(
+                      animation: _pulseController,
+                      builder: (_, __) => Container(
+                        width: 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: _useAI
+                              ? Color.lerp(_accent, Colors.white,
+                                  _pulseController.value * 0.3)
+                              : const Color(0xFF444444),
+                        ),
                       ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(_useAI ? 'AI' : 'OFF',
+                        style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: _useAI ? _accent : _textDim)),
+                  ]),
+                ),
+                const SizedBox(width: 4),
+                // Filters
+                _navButton(
+                  onTap: () =>
+                      setState(() => _filterDrawerOpen = !_filterDrawerOpen),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Icon(Icons.tune, size: 13, color: _textDim),
+                    if (_totalActiveFilters > 0) ...[
+                      const SizedBox(width: 3),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _useAI
-                              ? _maroonColor
-                              : Colors.grey.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.auto_awesome,
-                              size: 16,
-                              color: _useAI ? Colors.white : Colors.grey,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'AI',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: _useAI ? Colors.white : Colors.grey,
-                              ),
-                            ),
-                          ],
-                        ),
+                            horizontal: 4, vertical: 1),
+                        color: _accent,
+                        child: Text('$_totalActiveFilters',
+                            style: const TextStyle(
+                                fontSize: 8,
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700)),
                       ),
                     ],
-                  ),
+                  ]),
                 ),
-              );
-            },
-          ),
-          const SizedBox(width: 12),
-          // Cart button
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () {
-                _playSound('tap');
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const CartScreen()),
-                );
-              },
-              borderRadius: BorderRadius.circular(16),
-              child: _buildGlassContainer(
-                padding: const EdgeInsets.all(12),
-                borderRadius: 16,
-                child: Stack(
-                  children: [
-                    Icon(
-                      Icons.shopping_cart,
-                      color: _cartService.isEmpty
-                          ? Colors.white54
-                          : _maroonColor,
-                      size: 24,
-                    ),
-                    if (_cartService.itemCount > 0)
-                      Positioned(
-                        right: -4,
-                        top: -4,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: _maroonColor,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 18,
-                            minHeight: 18,
-                          ),
-                          child: Text(
-                            '${_cartService.itemCount > 99 ? '99+' : _cartService.itemCount}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
+                const SizedBox(width: 4),
+                // Lists
+                _navButton(
+                  onTap: () {
+                    _playSound('tap');
+                    if (!_authService.isLoggedIn) {
+                      Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => AuthScreen(onAuthenticated: () {
+                          Navigator.pop(context);
+                          _listService.loadLists().then((_) {
+                            Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
+                          });
+                        }),
+                      ));
+                    } else {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
+                    }
+                  },
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.list_alt,
+                        size: 13,
+                        color: _listService.activeList == null || (_listService.activeList?.items.isEmpty ?? true)
+                            ? _textDim : _accent),
+                    const SizedBox(width: 3),
+                    Text('${_listService.activeList?.uniqueItemCount ?? 0}',
+                        style: TextStyle(
+                            fontSize: 9,
+                            color: _listService.activeList == null || (_listService.activeList?.items.isEmpty ?? true)
+                                ? _textDim
+                                : _accent,
+                            fontWeight: FontWeight.w700)),
+                  ]),
                 ),
-              ),
+              ],
             ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      child: Column(
-        children: [
-          _buildGlassContainer(
-            borderRadius: 30,
-            child: Row(
+            const SizedBox(height: 6),
+            // Row 2: search
+            Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: _searchController,
-                    onSubmitted: _confirmAndSearch,
-                    style: const TextStyle(color: Colors.white, fontSize: 16),
-                    decoration: InputDecoration(
-                      hintText: _useAI
-                          ? 'Ask anything: "2hp motor for conveyor"...'
-                          : 'Search parts, manufacturers, MPN...',
-                      hintStyle: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.4),
-                      ),
-                      prefixIcon: _isSearching
-                          ? Padding(
-                              padding: const EdgeInsets.all(14),
-                              child: SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation(
-                                    _maroonColor,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : Icon(
-                              _useAI ? Icons.auto_awesome : Icons.search,
-                              color: _useAI
-                                  ? _maroonColor
-                                  : Colors.white.withValues(alpha: 0.5),
-                            ),
-                      suffixIcon: _searchController.text.isNotEmpty
-                          ? IconButton(
-                              icon: Icon(
-                                Icons.close,
-                                color: Colors.white.withValues(alpha: 0.5),
-                              ),
-                              onPressed: () {
-                                _searchController.clear();
-                                _performSearch('');
-                              },
-                            )
-                          : null,
-                      border: InputBorder.none,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 18,
-                      ),
-                    ),
-                  ),
-                ),
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: _isSearching
-                          ? null
-                          : () => _confirmAndSearch(_searchController.text),
-                      borderRadius: BorderRadius.circular(25),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _maroonColor,
-                          borderRadius: BorderRadius.circular(25),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(
-                                0xFF505050,
-                              ).withValues(alpha: 0.4),
-                              blurRadius: 15,
-                              offset: const Offset(0, 5),
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (_useAI) ...[
-                              const Icon(
-                                Icons.auto_awesome,
-                                size: 16,
-                                color: Colors.white,
-                              ),
-                              const SizedBox(width: 8),
-                            ],
-                            const Text(
-                              'Search',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // AI interpretation banner
-          if (_aiInterpretation != null && _useAI)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.only(top: 12),
-              child: _buildGlassContainer(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                borderRadius: 16,
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _maroonColor,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.psychology,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        _aiInterpretation!,
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.white.withValues(alpha: 0.9),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          // Token usage indicator
-          if (_tokenUsage != null && _useAI)
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              margin: const EdgeInsets.only(top: 8),
-              child: _buildGlassContainer(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-                borderRadius: 12,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.token,
-                      color: Colors.white.withValues(alpha: 0.6),
-                      size: 14,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Input: ${_tokenUsage!.inputTokens.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      width: 1,
-                      height: 12,
-                      color: Colors.white.withValues(alpha: 0.3),
-                    ),
-                    const SizedBox(width: 12),
-                    Text(
-                      'Output: ${_tokenUsage!.outputTokens.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Container(
-                      width: 1,
-                      height: 12,
-                      color: Colors.white.withValues(alpha: 0.3),
-                    ),
-                    const SizedBox(width: 12),
-                    Icon(
-                      Icons.attach_money,
-                      color: _maroonColor,
-                      size: 14,
-                    ),
-                    Text(
-                      '\$${_tokenUsage!.cost.toStringAsFixed(4)}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: _maroonColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterPanel() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      width: 252,
-      margin: const EdgeInsets.only(left: 10, bottom: 10),
-      child: Column(
-        children: [
-          Expanded(
-            child: _buildGlassContainer(
-              borderRadius: 20,
-              child: Column(
-                children: [
-                  // Header
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 10, 10),
-                    decoration: BoxDecoration(
-                      border: Border(
-                        bottom: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: _maroonColor,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Icon(
-                            Icons.filter_list,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Text(
-                          'Filters',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const Spacer(),
-                        if (_totalActiveFilters > 0) ...[
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _maroonColor,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '$_totalActiveFilters',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            onPressed: _clearAllFilters,
-                            icon: Icon(
-                              Icons.clear_all,
-                              size: 20,
-                              color: Colors.white.withValues(alpha: 0.7),
-                            ),
-                            tooltip: 'Clear all',
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                        const SizedBox(width: 8),
-                        IconButton(
-                          onPressed: () => setState(() => _showFilters = false),
-                          icon: Icon(
-                            Icons.chevron_left,
-                            size: 20,
-                            color: Colors.white.withValues(alpha: 0.7),
-                          ),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                        ),
-                      ],
-                    ),
-                  ),
-                  // Results count
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF505050).withValues(alpha: 0.1),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.inventory_2,
-                          size: 16,
-                          color: _maroonColor,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${_filteredResults.length} results',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: _maroonColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        if (_filteredResults.length != _searchResults.length)
-                          Text(
-                            ' of ${_searchResults.length}',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.white.withValues(alpha: 0.5),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  // Filter fields
-                  _buildWPartNumberQuickFilter(),
-                  Expanded(
-                    child: Scrollbar(
-                      thumbVisibility: true,
-                      child: ListView(
-                        padding: const EdgeInsets.all(8),
-                        children: [
-                          _buildManufacturerFilter(),
-                          _buildLegacyCodeFilter(),
-                          for (final field in _activeFilters.keys)
-                            _buildFilterField(field),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          // Notification box
-          _buildNotificationBox(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildWPartNumberQuickFilter() {
-    final hasSelections = _selectedWPartNumbers.isNotEmpty;
-
-    List<SearchResult> resultsForWList = List.from(_searchResults);
-
-    if (_selectedManufacturers.isNotEmpty) {
-      resultsForWList = resultsForWList.where((r) {
-        return _selectedManufacturers.contains(r.part.manufacturer);
-      }).toList();
-    }
-
-    if (_selectedLegacyCodes.isNotEmpty) {
-      resultsForWList = resultsForWList.where((r) {
-        return _selectedLegacyCodes.contains(r.part.legacyCode);
-      }).toList();
-    }
-
-    for (final entry in _activeFilters.entries) {
-      final field = entry.key;
-      final tags = entry.value;
-
-      if (tags.isEmpty) continue;
-
-      resultsForWList = resultsForWList.where((r) {
-        final fieldValue = _getFieldValue(r.part, field).toLowerCase();
-        return tags.every((tag) => fieldValue.contains(tag.toLowerCase()));
-      }).toList();
-    }
-
-    final availableWPartNumbers =
-        resultsForWList
-            .expand((r) => _extractWPartNumbers(r.part))
-            .toSet()
-            .toList()
-          ..sort();
-
-    final filteredWPartNumbers = _wPartNumberSearchQuery.isEmpty
-        ? availableWPartNumbers
-        : availableWPartNumbers
-              .where(
-                (w) =>
-                    w.toLowerCase().contains(_wPartNumberSearchQuery.toLowerCase()),
-              )
-              .toList();
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: hasSelections
-            ? const Color(0xFF505050).withValues(alpha: 0.1)
-            : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasSelections
-              ? const Color(0xFF505050).withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-            child: Row(
-              children: [
-                const Icon(Icons.tag, size: 14, color: _maroonColor),
-                const SizedBox(width: 6),
-                Text(
-                  'W Part Numbers',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: hasSelections
-                        ? _maroonColor
-                        : Colors.white.withValues(alpha: 0.6),
-                  ),
-                ),
-                if (hasSelections) ...[
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${_selectedWPartNumbers.length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: _maroonColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () {
-                      _playSound('tap');
-                      setState(() {
-                        _selectedWPartNumbers.clear();
-                      });
-                      _applyFilters();
-                    },
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(
-                        Icons.close,
-                        size: 12,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: TextField(
-              controller: _wPartNumberSearchController,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              decoration: InputDecoration(
-                hintText: 'Search W part numbers...',
-                hintStyle: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.3),
-                ),
-                prefixIcon: Icon(
-                  Icons.search,
-                  size: 16,
-                  color: Colors.white.withValues(alpha: 0.4),
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.05),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: _maroonColor,
-                    width: 1,
-                  ),
-                ),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _wPartNumberSearchQuery = value;
-                });
-              },
-            ),
-          ),
-          if (hasSelections)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _selectedWPartNumbers.map((wPartNumber) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          wPartNumber,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () {
-                            _playSound('tap');
-                            setState(() {
-                              _selectedWPartNumbers.remove(wPartNumber);
-                            });
-                            _applyFilters();
-                          },
-                          child: const Icon(
-                            Icons.close,
-                            size: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          if (filteredWPartNumbers.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 132),
-              margin: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: filteredWPartNumbers.length,
-                  itemBuilder: (context, index) {
-                    final wPartNumber = filteredWPartNumbers[index];
-                    final isSelected = _selectedWPartNumbers.contains(
-                      wPartNumber,
-                    );
-                    return InkWell(
-                      onTap: () {
-                        _playSound('tap');
-                        setState(() {
-                          if (isSelected) {
-                            _selectedWPartNumbers.remove(wPartNumber);
-                          } else {
-                            _selectedWPartNumbers.add(wPartNumber);
-                          }
-                        });
-                        _applyFilters();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF505050).withValues(alpha: 0.2)
-                              : Colors.transparent,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.05),
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? _maroonColor
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? _maroonColor
-                                      : Colors.white.withValues(alpha: 0.3),
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: isSelected
-                                  ? const Icon(
-                                      Icons.check,
-                                      size: 10,
-                                      color: Colors.white,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                wPartNumber,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.7),
-                                  fontWeight: isSelected
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          if (filteredWPartNumbers.isEmpty && _wPartNumberSearchQuery.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Text(
-                'No W part numbers found',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildNotificationBox() {
-    return AnimatedBuilder(
-      animation: _notificationAnimation,
-      builder: (context, child) {
-        if (_notificationMessage == null && _notificationAnimation.value == 0) {
-          return const SizedBox.shrink();
-        }
-        return Opacity(
-          opacity: _notificationAnimation.value,
-          child: Transform.translate(
-            offset: Offset(0, 20 * (1 - _notificationAnimation.value)),
-            child: Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: _maroonColor.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF505050).withValues(alpha: 0.3),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    _notificationIcon ?? Icons.check_circle,
-                    color: Colors.white,
-                    size: 18,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _notificationMessage ?? '',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CartScreen(),
-                        ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'View',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildManufacturerFilter() {
-    final hasSelections = _selectedManufacturers.isNotEmpty;
-
-    // Get manufacturers from results filtered by OTHER filters (not manufacturer)
-    // This allows users to see what manufacturers are available after applying
-    // location, description, etc. filters, while still being able to add multiple manufacturers
-    List<SearchResult> resultsForManufacturerList = List.from(_searchResults);
-
-    // Apply only non-manufacturer filters
-    for (final entry in _activeFilters.entries) {
-      final field = entry.key;
-      final tags = entry.value;
-
-      if (tags.isEmpty) continue;
-
-      resultsForManufacturerList = resultsForManufacturerList.where((r) {
-        final fieldValue = _getFieldValue(r.part, field).toLowerCase();
-        return tags.every((tag) => fieldValue.contains(tag.toLowerCase()));
-      }).toList();
-    }
-
-    final availableManufacturers =
-        resultsForManufacturerList
-            .map((r) => r.part.manufacturer)
-            .where((m) => m.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-
-    // Filter manufacturers based on search query
-    final filteredManufacturers = _manufacturerSearchQuery.isEmpty
-        ? availableManufacturers
-        : availableManufacturers
-              .where(
-                (m) => m.toLowerCase().contains(
-                  _manufacturerSearchQuery.toLowerCase(),
-                ),
-              )
-              .toList();
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: hasSelections
-            ? const Color(0xFF505050).withValues(alpha: 0.1)
-            : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasSelections
-              ? const Color(0xFF505050).withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-            child: Row(
-              children: [
-                const Icon(Icons.business, size: 14, color: _maroonColor),
-                const SizedBox(width: 6),
-                Text(
-                  'Manufacturer',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: hasSelections
-                        ? _maroonColor
-                        : Colors.white.withValues(alpha: 0.6),
-                  ),
-                ),
-                if (hasSelections) ...[
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${_selectedManufacturers.length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: _maroonColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () {
-                      _playSound('tap');
-                      setState(() {
-                        _selectedManufacturers.clear();
-                      });
-                      _applyFilters();
-                    },
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(
-                        Icons.close,
-                        size: 12,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // Search input
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: TextField(
-              controller: _manufacturerSearchController,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              decoration: InputDecoration(
-                hintText: 'Search manufacturers...',
-                hintStyle: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.3),
-                ),
-                prefixIcon: Icon(
-                  Icons.search,
-                  size: 16,
-                  color: Colors.white.withValues(alpha: 0.4),
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.05),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: _maroonColor,
-                    width: 1,
-                  ),
-                ),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _manufacturerSearchQuery = value;
-                });
-              },
-            ),
-          ),
-          // Selected manufacturers (chips)
-          if (hasSelections)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _selectedManufacturers.map((manufacturer) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          manufacturer,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () {
-                            _playSound('tap');
-                            setState(() {
-                              _selectedManufacturers.remove(manufacturer);
-                            });
-                            _applyFilters();
-                          },
-                          child: const Icon(
-                            Icons.close,
-                            size: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          // Manufacturer list with checkboxes
-          if (filteredManufacturers.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 132),
-              margin: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: filteredManufacturers.length,
-                  itemBuilder: (context, index) {
-                    final manufacturer = filteredManufacturers[index];
-                    final isSelected = _selectedManufacturers.contains(
-                      manufacturer,
-                    );
-                    return InkWell(
-                      onTap: () {
-                        _playSound('tap');
-                        setState(() {
-                          if (isSelected) {
-                            _selectedManufacturers.remove(manufacturer);
-                          } else {
-                            _selectedManufacturers.add(manufacturer);
-                          }
-                        });
-                        _applyFilters();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF505050).withValues(alpha: 0.2)
-                              : Colors.transparent,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.05),
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? _maroonColor
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? _maroonColor
-                                      : Colors.white.withValues(alpha: 0.3),
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: isSelected
-                                  ? const Icon(
-                                      Icons.check,
-                                      size: 10,
-                                      color: Colors.white,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                manufacturer,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.7),
-                                  fontWeight: isSelected
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          if (filteredManufacturers.isEmpty &&
-              _manufacturerSearchQuery.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Text(
-                'No manufacturers found',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildLegacyCodeFilter() {
-    final hasSelections = _selectedLegacyCodes.isNotEmpty;
-
-    // Get legacy codes from results filtered by OTHER filters (not legacy code)
-    List<SearchResult> resultsForLegacyCodeList = List.from(_searchResults);
-
-    // Apply only non-legacy-code filters
-    if (_selectedManufacturers.isNotEmpty) {
-      resultsForLegacyCodeList = resultsForLegacyCodeList.where((r) {
-        return _selectedManufacturers.contains(r.part.manufacturer);
-      }).toList();
-    }
-
-    for (final entry in _activeFilters.entries) {
-      final field = entry.key;
-      final tags = entry.value;
-
-      if (tags.isEmpty) continue;
-
-      resultsForLegacyCodeList = resultsForLegacyCodeList.where((r) {
-        final fieldValue = _getFieldValue(r.part, field).toLowerCase();
-        return tags.every((tag) => fieldValue.contains(tag.toLowerCase()));
-      }).toList();
-    }
-
-    final availableLegacyCodes =
-        resultsForLegacyCodeList
-            .map((r) => r.part.legacyCode)
-            .where((m) => m.isNotEmpty)
-            .toSet()
-            .toList()
-          ..sort();
-
-    // Filter legacy codes based on search query
-    final filteredLegacyCodes = _legacyCodeSearchQuery.isEmpty
-        ? availableLegacyCodes
-        : availableLegacyCodes
-              .where(
-                (m) => m.toLowerCase().contains(
-                  _legacyCodeSearchQuery.toLowerCase(),
-                ),
-              )
-              .toList();
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: hasSelections
-            ? const Color(0xFF505050).withValues(alpha: 0.1)
-            : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: hasSelections
-              ? const Color(0xFF505050).withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-            child: Row(
-              children: [
-                const Icon(Icons.tag, size: 14, color: _maroonColor),
-                const SizedBox(width: 6),
-                Text(
-                  'Legacy Part #',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: hasSelections
-                        ? _maroonColor
-                        : Colors.white.withValues(alpha: 0.6),
-                  ),
-                ),
-                if (hasSelections) ...[
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${_selectedLegacyCodes.length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: _maroonColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () {
-                      _playSound('tap');
-                      setState(() {
-                        _selectedLegacyCodes.clear();
-                      });
-                      _applyFilters();
-                    },
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(
-                        Icons.close,
-                        size: 12,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // Search input
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: TextField(
-              controller: _legacyCodeSearchController,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              decoration: InputDecoration(
-                hintText: 'Search legacy part numbers...',
-                hintStyle: TextStyle(
-                  fontSize: 12,
-                  color: Colors.white.withValues(alpha: 0.3),
-                ),
-                prefixIcon: Icon(
-                  Icons.search,
-                  size: 16,
-                  color: Colors.white.withValues(alpha: 0.4),
-                ),
-                isDense: true,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.05),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  borderSide: const BorderSide(
-                    color: _maroonColor,
-                    width: 1,
-                  ),
-                ),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  _legacyCodeSearchQuery = value;
-                });
-              },
-            ),
-          ),
-          // Selected legacy codes (chips)
-          if (hasSelections)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: _selectedLegacyCodes.map((legacyCode) {
-                  return Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          legacyCode,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: Colors.white,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () {
-                            _playSound('tap');
-                            setState(() {
-                              _selectedLegacyCodes.remove(legacyCode);
-                            });
-                            _applyFilters();
-                          },
-                          child: const Icon(
-                            Icons.close,
-                            size: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          // Legacy code list with checkboxes
-          if (filteredLegacyCodes.isNotEmpty)
-            Container(
-              constraints: const BoxConstraints(maxHeight: 132),
-              margin: const EdgeInsets.fromLTRB(6, 0, 6, 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Scrollbar(
-                thumbVisibility: true,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: filteredLegacyCodes.length,
-                  itemBuilder: (context, index) {
-                    final legacyCode = filteredLegacyCodes[index];
-                    final isSelected = _selectedLegacyCodes.contains(legacyCode);
-                    return InkWell(
-                      onTap: () {
-                        _playSound('tap');
-                        setState(() {
-                          if (isSelected) {
-                            _selectedLegacyCodes.remove(legacyCode);
-                          } else {
-                            _selectedLegacyCodes.add(legacyCode);
-                          }
-                        });
-                        _applyFilters();
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF505050).withValues(alpha: 0.2)
-                              : Colors.transparent,
-                          border: Border(
-                            bottom: BorderSide(
-                              color: Colors.white.withValues(alpha: 0.05),
-                            ),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 16,
-                              height: 16,
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? _maroonColor
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(4),
-                                border: Border.all(
-                                  color: isSelected
-                                      ? _maroonColor
-                                      : Colors.white.withValues(alpha: 0.3),
-                                  width: 1.2,
-                                ),
-                              ),
-                              child: isSelected
-                                  ? const Icon(
-                                      Icons.check,
-                                      size: 10,
-                                      color: Colors.white,
-                                    )
-                                  : null,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                legacyCode,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: isSelected
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.7),
-                                  fontWeight: isSelected
-                                      ? FontWeight.w500
-                                      : FontWeight.normal,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-            ),
-          if (filteredLegacyCodes.isEmpty && _legacyCodeSearchQuery.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-              child: Text(
-                'No legacy codes found',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterField(String field) {
-    final tags = _activeFilters[field]!;
-    final controller = _filterControllers[field]!;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: tags.isNotEmpty
-            ? const Color(0xFF505050).withValues(alpha: 0.1)
-            : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: tags.isNotEmpty
-              ? const Color(0xFF505050).withValues(alpha: 0.3)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Field header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
-            child: Row(
-              children: [
-                Text(
-                  _getFieldDisplayName(field),
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: tags.isNotEmpty
-                        ? _maroonColor
-                        : Colors.white.withValues(alpha: 0.6),
-                  ),
-                ),
-                if (tags.isNotEmpty) ...[
-                  const Spacer(),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 2,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _maroonColor.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      '${tags.length}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: _maroonColor,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  InkWell(
-                    onTap: () => _clearFieldFilters(field),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Icon(
-                        Icons.close,
-                        size: 12,
-                        color: Colors.white.withValues(alpha: 0.8),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-          // Input
-          Padding(
-            padding: const EdgeInsets.all(6),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    focusNode: _filterFocusNodes[field],
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                    decoration: InputDecoration(
-                      hintText: 'Add filter...',
-                      hintStyle: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.3),
-                      ),
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.05),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: const BorderSide(
-                          color: _maroonColor,
-                          width: 1,
-                        ),
-                      ),
-                    ),
-                    onSubmitted: (value) => _addFilter(field, value),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: () => _addFilter(field, controller.text),
-                    borderRadius: BorderRadius.circular(10),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _maroonColor,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: const Icon(
-                        Icons.add,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Tags
-          if (tags.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: tags
-                    .map((tag) => _buildFilterTag(field, tag))
-                    .toList(),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterTag(String field, String tag) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: _maroonColor.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: _maroonColor.withValues(alpha: 0.5),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            tag,
-            style: const TextStyle(
-              fontSize: 11,
-              color: Colors.white,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-          const SizedBox(width: 6),
-          InkWell(
-            onTap: () => _removeFilter(field, tag),
-            child: const Icon(Icons.close, size: 14, color: Colors.white70),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildContent() {
-    if (_isLoading) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedBuilder(
-              animation: _loadingController,
-              builder: (context, child) {
-                return Transform.rotate(
-                  angle: _loadingController.value * 2 * math.pi,
                   child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      color: _maroonColor,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Icon(
-                      Icons.precision_manufacturing,
-                      color: Colors.white,
-                      size: 40,
+                    height: 34,
+                    color: _surface,
+                    child: TextField(
+                      controller: _searchController,
+                      onSubmitted: _confirmAndSearch,
+                      style: const TextStyle(color: _text, fontSize: 12),
+                      decoration: InputDecoration(
+                        hintText: _useAI
+                            ? 'Ask anything... "2hp motor for conveyor"'
+                            : 'Search part name, MPN, manufacturer...',
+                        hintStyle:
+                            const TextStyle(color: Color(0xFF444444), fontSize: 11),
+                        prefixIcon: _isSearching
+                            ? const Padding(
+                                padding: EdgeInsets.all(9),
+                                child: SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                        strokeWidth: 1.5, color: _accent)),
+                              )
+                            : Icon(
+                                _useAI ? Icons.auto_awesome : Icons.search,
+                                size: 14,
+                                color: _useAI
+                                    ? _accent
+                                    : const Color(0xFF444444)),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close,
+                                    size: 12, color: _textDim),
+                                onPressed: () {
+                                  _searchController.clear();
+                                  _performSearch('');
+                                },
+                              )
+                            : null,
+                        border: InputBorder.none,
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 9),
+                      ),
                     ),
                   ),
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Loading MRO Database...',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.white.withValues(alpha: 0.8),
-              ),
+                ),
+                const SizedBox(width: 4),
+                SizedBox(
+                  height: 34,
+                  child: TextButton(
+                    onPressed: _isSearching
+                        ? null
+                        : () => _confirmAndSearch(_searchController.text),
+                    style: TextButton.styleFrom(
+                      backgroundColor: _accent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.zero),
+                    ),
+                    child: Text(_useAI ? 'ASK' : 'GO',
+                        style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 1)),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
-      );
-    }
+      ),
+    );
+  }
 
+  Widget _navButton({required VoidCallback onTap, required Widget child}) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+          decoration: BoxDecoration(border: Border.all(color: _border)),
+          child: child,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAIBanner() {
+    return Container(
+      color: _accentDim.withValues(alpha: 0.12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.psychology, size: 12, color: _accent),
+          const SizedBox(width: 6),
+          Expanded(
+              child: Text(_aiInterpretation!,
+                  style: const TextStyle(fontSize: 10, color: _text),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTokenRow() {
+    return Container(
+      color: _surfaceRaised,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text('IN ${_tokenUsage!.inputTokens.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 8, color: _textDim)),
+          _divider(),
+          Text('OUT ${_tokenUsage!.outputTokens.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 8, color: _textDim)),
+          _divider(),
+          Text('\$${_tokenUsage!.cost.toStringAsFixed(4)}',
+              style: const TextStyle(
+                  fontSize: 8,
+                  color: _accent,
+                  fontWeight: FontWeight.w600)),
+        ],
+      ),
+    );
+  }
+
+  Widget _divider() => Container(
+      width: 1,
+      height: 6,
+      color: _border,
+      margin: const EdgeInsets.symmetric(horizontal: 6));
+
+  // ── Body: grid of results ─────────────────────────────────────────────
+
+  Widget _buildBody() {
+    if (_isLoading) {
+      return const Center(
+          child: CircularProgressIndicator(color: _accent, strokeWidth: 2));
+    }
     if (_error != null) {
       return Center(
-        child: _buildGlassContainer(
-          padding: const EdgeInsets.all(32),
-          margin: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Icon(
-                  Icons.error_outline,
-                  size: 48,
-                  color: Colors.white.withValues(alpha: 0.8),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'Error Loading Data',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-              ),
-            ],
-          ),
-        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.error_outline, size: 36, color: Color(0xFFEF4444)),
+          const SizedBox(height: 10),
+          const Text('Error Loading Data',
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: _text)),
+          const SizedBox(height: 4),
+          Text(_error!,
+              style: const TextStyle(fontSize: 11, color: _textDim),
+              textAlign: TextAlign.center),
+        ]),
       );
     }
-
-    if (_filteredResults.isEmpty && (_hasSearched || _totalActiveFilters > 0)) {
+    if (_filteredResults.isEmpty &&
+        (_hasSearched || _totalActiveFilters > 0)) {
       return Center(
-        child: _buildGlassContainer(
-          padding: const EdgeInsets.all(32),
-          margin: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: _maroonColor.withValues(alpha: 0.3),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Icon(
-                  Icons.search_off,
-                  size: 48,
-                  color: Colors.white70,
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Text(
-                'No Results Found',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                _totalActiveFilters > 0
-                    ? 'Try removing some filters'
-                    : 'Try a different search',
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
-              ),
-              if (_totalActiveFilters > 0) ...[
-                const SizedBox(height: 16),
-                TextButton.icon(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.search_off, size: 36, color: _textDim),
+          const SizedBox(height: 10),
+          const Text('No Results',
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: _text)),
+          const SizedBox(height: 4),
+          Text(
+              _totalActiveFilters > 0
+                  ? 'Try removing some filters'
+                  : 'Try a different search',
+              style: const TextStyle(fontSize: 11, color: _textDim)),
+          if (_totalActiveFilters > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: TextButton(
                   onPressed: _clearAllFilters,
-                  icon: const Icon(Icons.clear_all, color: _maroonColor),
-                  label: const Text(
-                    'Clear Filters',
-                    style: TextStyle(color: _maroonColor),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
+                  child: const Text('Clear Filters',
+                      style: TextStyle(color: _accent, fontSize: 11))),
+            ),
+        ]),
       );
     }
 
     return Column(
       children: [
-        // Results header
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-          child: Row(
-            children: [
-              if (!_showFilters)
-                Padding(
-                  padding: const EdgeInsets.only(right: 12),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: () => setState(() => _showFilters = true),
-                      borderRadius: BorderRadius.circular(12),
-                      child: _buildGlassContainer(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        borderRadius: 12,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.filter_list,
-                              size: 16,
-                              color: _totalActiveFilters > 0
-                                  ? _maroonColor
-                                  : Colors.white70,
-                            ),
-                            if (_totalActiveFilters > 0) ...[
-                              const SizedBox(width: 6),
-                              Text(
-                                '$_totalActiveFilters',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: _maroonColor,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              Text(
-                '${_filteredResults.length} results',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.white.withValues(alpha: 0.7),
-                  fontWeight: FontWeight.w500,
-                ),
+        // Header bar
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          color: _surface,
+          child: Row(children: [
+            Text('${_filteredResults.length} results',
+                style: const TextStyle(
+                    fontSize: 10,
+                    color: _textDim,
+                    fontWeight: FontWeight.w600)),
+            if (_hasSearched) ...[
+              const SizedBox(width: 6),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                color: _accentDim.withValues(alpha: 0.2),
+                child: const Text('RANKED',
+                    style: TextStyle(
+                        fontSize: 8,
+                        color: _accent,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1)),
               ),
-              if (_hasSearched) ...[
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _maroonColor.withValues(alpha: 0.3),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Text(
-                    'Ranked by relevance',
-                    style: TextStyle(fontSize: 11, color: Colors.white70),
-                  ),
-                ),
-              ],
             ],
-          ),
+          ]),
         ),
-        // Results list
+        // Grid
         Expanded(
-          child: Scrollbar(
-            thumbVisibility: true,
-            child: ListView.builder(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              itemCount: _filteredResults.length,
-              itemBuilder: (context, index) {
-                final result = _filteredResults[index];
-                return TweenAnimationBuilder<double>(
-                  tween: Tween(begin: 0, end: 1),
-                  duration: Duration(
-                    milliseconds: 300 + (index * 50).clamp(0, 500),
-                  ),
-                  curve: Curves.easeOutCubic,
-                  builder: (context, value, child) {
-                    return Transform.translate(
-                      offset: Offset(0, 20 * (1 - value)),
-                      child: Opacity(opacity: value, child: child),
-                    );
-                  },
-                  child: _buildPartCard(
-                    result.part,
-                    result.score,
-                    result.matchReasons,
-                    _hasSearched,
-                  ),
-                );
-              },
-            ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              int cols;
+              if (constraints.maxWidth > 750) {
+                cols = 3;
+              } else if (constraints.maxWidth > 450) {
+                cols = 2;
+              } else {
+                cols = 1;
+              }
+              return GridView.builder(
+                padding: const EdgeInsets.all(6),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: cols,
+                  mainAxisSpacing: 2,
+                  crossAxisSpacing: 2,
+                  childAspectRatio: 1.45,
+                ),
+                itemCount: _filteredResults.length,
+                itemBuilder: (context, index) {
+                  final r = _filteredResults[index];
+                  return _gridCard(
+                      r.part, r.score, r.matchReasons, _hasSearched, index);
+                },
+              );
+            },
           ),
         ),
       ],
     );
   }
 
-  Widget _buildPartCard(
-    MroPart part,
-    double score,
-    List<String> matchReasons,
-    bool showRelevance,
-  ) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      child: HoverGlowWrapper(
+  // ── Grid card ─────────────────────────────────────────────────────────
+
+  Widget _gridCard(MroPart part, double score, List<String> matchReasons,
+      bool showRelevance, int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: Duration(milliseconds: 150 + (index * 20).clamp(0, 200)),
+      curve: Curves.easeOut,
+      builder: (context, v, child) =>
+          Opacity(opacity: v, child: Transform.scale(scale: 0.96 + 0.04 * v, child: child)),
+      child: _HoverCard(
         onTap: () {
           _playSound('tap');
           _showPartDetails(part);
         },
-        borderRadius: 16,
-        child: _buildGlassContainer(
-          padding: const EdgeInsets.all(16),
-          borderRadius: 16,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  // Item Name badge
-                  Flexible(
-                    fit: FlexFit.loose,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF3D3D3D), Color(0xFF8B2020)],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        part.itemName.isNotEmpty
-                            ? part.itemName
-                            : 'No Item Name',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontSize: 26,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // Location
-                  if (part.location.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.orange.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.orange.withValues(alpha: 0.4),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.location_on,
-                            size: 24,
-                            color: Colors.orange,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            part.location,
-                            style: const TextStyle(
-                              color: Colors.orange,
-                              fontSize: 22,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
+        borderColor: _border,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Score bar
+            if (showRelevance)
+              Container(
+                height: 2,
+                color: _scoreColor(score),
               ),
-              const SizedBox(height: 12),
-              // Legacy code
-              if (part.legacyCode.isNotEmpty)
-                Row(
+            // Body
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(
-                      Icons.tag,
-                      size: 28,
-                      color: Colors.white.withValues(alpha: 0.4),
-                    ),
-                    const SizedBox(width: 6),
+                    // Name
                     Text(
-                      part.legacyCode,
-                      style: TextStyle(
-                        fontSize: 24,
-                        color: Colors.white.withValues(alpha: 0.6),
-                      ),
+                      part.itemName.isNotEmpty
+                          ? part.itemName
+                          : part.legacyCode.isNotEmpty
+                              ? part.legacyCode
+                              : 'Unknown Part',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: _text,
+                          height: 1.3),
                     ),
-                  ],
-                ),
-              // Description
-              if (part.description.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Text(
-                  part.description,
-                  style: TextStyle(
-                    fontSize: 26,
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-              const SizedBox(height: 12),
-              // Info chips
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  if (part.manufacturer.isNotEmpty)
-                    _buildInfoChip(Icons.business, part.manufacturer),
-                  if (part.manufacturerPartNumber.isNotEmpty)
-                    _buildInfoChip(
-                      Icons.qr_code,
-                      part.manufacturerPartNumber,
-                    ),
-                  if (part.unitCost > 0)
-                    _buildInfoChip(
-                      Icons.attach_money,
-                      part.unitCost.toStringAsFixed(2),
-                      chipColor: const Color(0xFF2E7D32),
-                    ),
-                ],
-              ),
-              // Match reasons
-              if (showRelevance && matchReasons.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF505050).withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                      color: const Color(0xFF505050).withValues(alpha: 0.2),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Icon(
-                        Icons.auto_awesome,
-                        size: 28,
-                        color: _maroonColor,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          matchReasons.take(2).join(' • '),
+                    const SizedBox(height: 3),
+                    if (part.legacyCode.isNotEmpty &&
+                        part.itemName.isNotEmpty)
+                      Text('# ${part.legacyCode}',
                           style: const TextStyle(
-                            fontSize: 22,
-                            color: _maroonColor,
-                          ),
-                        ),
-                      ),
+                              fontSize: 13,
+                              color: _textDim,
+                              fontWeight: FontWeight.w500)),
+                    // Description
+                    if (part.description.isNotEmpty) ...[  
+                      const SizedBox(height: 4),
+                      Text(part.description,
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: _text.withValues(alpha: 0.6),
+                              height: 1.35)),
+                    ],
+                    // AI match reasons
+                    if (showRelevance && matchReasons.isNotEmpty) ...[  
+                      const SizedBox(height: 5),
                       Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: _getScoreGradient(score),
-                          ),
-                          borderRadius: BorderRadius.circular(8),
+                          border: Border(left: BorderSide(color: _accent, width: 2)),
+                          color: _accent.withValues(alpha: 0.06),
                         ),
                         child: Text(
-                          '${score.toInt()}%',
-                          style: const TextStyle(
-                            fontSize: 20,
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          matchReasons.take(3).join(' · '),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10, color: _accent, fontWeight: FontWeight.w500, height: 1.3),
                         ),
                       ),
                     ],
-                  ),
-                ),
-              ],
-              // Add to Cart button
-              const SizedBox(height: 12),
-              _buildAddToCartButton(part),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  List<Color> _getScoreGradient(double score) {
-    if (score >= 90) return [const Color(0xFF00C853), const Color(0xFF00E676)];
-    if (score >= 70) return [_maroonColor, _maroonColor];
-    if (score >= 50) return [const Color(0xFFFF9800), const Color(0xFFFFB74D)];
-    return [const Color(0xFF757575), const Color(0xFF9E9E9E)];
-  }
-
-  Widget _buildInfoChip(IconData icon, String text, {Color? chipColor}) {
-    final hasCustomColor = chipColor != null;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: hasCustomColor
-            ? chipColor.withValues(alpha: 0.2)
-            : Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: hasCustomColor
-              ? chipColor.withValues(alpha: 0.5)
-              : Colors.white.withValues(alpha: 0.1),
-        ),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            icon,
-            size: 24,
-            color: hasCustomColor
-                ? chipColor
-                : Colors.white.withValues(alpha: 0.6),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: hasCustomColor ? FontWeight.w600 : FontWeight.normal,
-              color: hasCustomColor
-                  ? chipColor
-                  : Colors.white.withValues(alpha: 0.8),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAddToCartButton(MroPart part) {
-    final isInCart = _cartService.isInCart(part);
-    final quantity = _cartService.getQuantity(part);
-
-    if (isInCart) {
-      return Row(
-        children: [
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: _maroonColor.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _maroonColor.withValues(alpha: 0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.check_circle,
-                    color: _maroonColor,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'In Cart',
-                    style: TextStyle(
-                      color: _maroonColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  // Quantity controls
-                  Container(
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        GestureDetector(
-                          onTap: () {
-                            _playSound('tap');
-                            _cartService.decrementQuantity(part);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            child: const Icon(
-                              Icons.remove,
-                              size: 14,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            '$quantity',
+                    const Spacer(),
+                    // Meta
+                    if (part.manufacturer.isNotEmpty) _chip(part.manufacturer),
+                    if (part.manufacturerPartNumber.isNotEmpty)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: _chip(part.manufacturerPartNumber)),
+                    if (part.location.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 3),
+                        child: Row(children: [
+                          Container(width: 4, height: 4, color: Colors.orange),
+                          const SizedBox(width: 4),
+                          Expanded(
+                              child: Text(part.location,
+                                  style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Colors.orange,
+                                      fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis)),
+                        ]),
+                      ),
+                    const SizedBox(height: 6),
+                    // Price + score
+                    Row(children: [
+                      if (part.unitCost > 0)
+                        Text('\$${part.unitCost.toStringAsFixed(2)}',
                             style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                            ),
-                          ),
-                        ),
-                        GestureDetector(
-                          onTap: () {
-                            _playSound('tap');
-                            _cartService.incrementQuantity(part);
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.all(6),
-                            child: const Icon(
-                              Icons.add,
-                              size: 14,
-                              color: _maroonColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
+                                fontSize: 20,
+                                color: Color(0xFF22C55E),
+                                fontWeight: FontWeight.w700)),
+                      const Spacer(),
+                      if (showRelevance)
+                        Text('${score.toInt()}%',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _scoreColor(score))),
+                    ]),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
-      );
-    }
-
-    return GestureDetector(
-      onTap: () {
-        _playSound('tap');
-        _cartService.addToCart(part);
-        final name = part.itemName.isNotEmpty
-            ? part.itemName
-            : part.legacyCode;
-        _showNotification(
-          'Added "$name" to cart',
-          icon: Icons.add_shopping_cart,
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        decoration: BoxDecoration(
-          color: _maroonColor.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: const Color(0xFF505050).withValues(alpha: 0.4),
-          ),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.add_shopping_cart,
-              color: Colors.white,
-              size: 16,
-            ),
-            const SizedBox(width: 8),
-            const Text(
-              'Add to Cart',
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
+            // Add-to-list strip
+            InkWell(
+              onTap: () {
+                _playSound('tap');
+                if (!_authService.isLoggedIn) {
+                  _showNotification('Sign in to add parts to lists', icon: Icons.login);
+                  return;
+                }
+                _showAddToListModal(part);
+              },
+              child: Container(
+                decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: _border))),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.playlist_add,
+                          size: 14, color: _textDim),
+                      SizedBox(width: 4),
+                      Text('ADD TO LIST',
+                          style: TextStyle(
+                              fontSize: 12,
+                              color: _textDim,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1)),
+                    ]),
               ),
             ),
           ],
@@ -3144,170 +935,1367 @@ class _SearchScreenState extends State<SearchScreen>
     );
   }
 
-  void _showPartDetails(MroPart part) {
-    _playSound('tap');
+
+
+  Widget _chip(String text) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Flexible(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          color: _border,
+          child: Text(text,
+              style: const TextStyle(fontSize: 12, color: _textDim),
+              overflow: TextOverflow.ellipsis),
+        ),
+      ),
+    ]);
+  }
+
+  Color _scoreColor(double score) {
+    if (score >= 90) return const Color(0xFF22C55E);
+    if (score >= 70) return _accent;
+    if (score >= 50) return Colors.orange;
+    return _textDim;
+  }
+
+  // ── Filter drawer ─────────────────────────────────────────────────────
+
+  Widget _buildFilterOverlay() {
+    return Stack(children: [
+      GestureDetector(
+        onTap: () => setState(() => _filterDrawerOpen = false),
+        child: Container(color: Colors.black54),
+      ),
+      Positioned(
+        right: 0,
+        top: 0,
+        bottom: 0,
+        child: SizedBox(
+          width: 300,
+          child: Material(
+            color: _surfaceRaised,
+            child: Column(children: [
+              // Header
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+                decoration: const BoxDecoration(
+                    border: Border(bottom: BorderSide(color: _border))),
+                child: SafeArea(
+                  bottom: false,
+                  child: Row(children: [
+                    const Icon(Icons.tune, size: 14, color: _accent),
+                    const SizedBox(width: 6),
+                    const Text('FILTERS',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: _text,
+                            letterSpacing: 2)),
+                    const Spacer(),
+                    if (_totalActiveFilters > 0)
+                      TextButton(
+                        onPressed: _clearAllFilters,
+                        child: const Text('CLEAR',
+                            style: TextStyle(
+                                fontSize: 8,
+                                color: _accent,
+                                fontWeight: FontWeight.w700)),
+                      ),
+                    IconButton(
+                      onPressed: () =>
+                          setState(() => _filterDrawerOpen = false),
+                      icon:
+                          const Icon(Icons.close, size: 16, color: _textDim),
+                    ),
+                  ]),
+                ),
+              ),
+              // Count
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                color: _surface,
+                child: Row(children: [
+                  Text('${_filteredResults.length}',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: _accent)),
+                  const SizedBox(width: 3),
+                  Text('of ${_searchResults.length}',
+                      style:
+                          const TextStyle(fontSize: 9, color: _textDim)),
+                ]),
+              ),
+              // Sections
+              Expanded(
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: ListView(
+                    padding: const EdgeInsets.all(10),
+                    children: [
+                      _multiSelect(
+                        label: 'W Part Numbers',
+                        icon: Icons.tag,
+                        controller: _wPartNumberSearchController,
+                        selected: _selectedWPartNumbers,
+                        searchQuery: _wPartNumberSearchQuery,
+                        onSearchChanged: (v) =>
+                            setState(() => _wPartNumberSearchQuery = v),
+                        getAvailable: _availableWParts,
+                        onToggle: (v) {
+                          setState(() => _selectedWPartNumbers.contains(v)
+                              ? _selectedWPartNumbers.remove(v)
+                              : _selectedWPartNumbers.add(v));
+                          _applyFilters();
+                        },
+                        onClear: () {
+                          setState(() => _selectedWPartNumbers.clear());
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _multiSelect(
+                        label: 'Manufacturer',
+                        icon: Icons.business,
+                        controller: _manufacturerSearchController,
+                        selected: _selectedManufacturers,
+                        searchQuery: _manufacturerSearchQuery,
+                        onSearchChanged: (v) =>
+                            setState(() => _manufacturerSearchQuery = v),
+                        getAvailable: _availableManufacturers,
+                        onToggle: (v) {
+                          setState(() =>
+                              _selectedManufacturers.contains(v)
+                                  ? _selectedManufacturers.remove(v)
+                                  : _selectedManufacturers.add(v));
+                          _applyFilters();
+                        },
+                        onClear: () {
+                          setState(() => _selectedManufacturers.clear());
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      _multiSelect(
+                        label: 'Legacy Part #',
+                        icon: Icons.history,
+                        controller: _legacyCodeSearchController,
+                        selected: _selectedLegacyCodes,
+                        searchQuery: _legacyCodeSearchQuery,
+                        onSearchChanged: (v) =>
+                            setState(() => _legacyCodeSearchQuery = v),
+                        getAvailable: _availableLegacyCodes,
+                        onToggle: (v) {
+                          setState(() =>
+                              _selectedLegacyCodes.contains(v)
+                                  ? _selectedLegacyCodes.remove(v)
+                                  : _selectedLegacyCodes.add(v));
+                          _applyFilters();
+                        },
+                        onClear: () {
+                          setState(() => _selectedLegacyCodes.clear());
+                          _applyFilters();
+                        },
+                      ),
+                      const SizedBox(height: 6),
+                      for (final field in _activeFilters.keys) ...[
+                        _textFilter(field),
+                        const SizedBox(height: 6),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  // ── Available options helpers ─────────────────────────────────────────
+
+  List<String> _availableWParts() {
+    var r = List<SearchResult>.from(_searchResults);
+    if (_selectedManufacturers.isNotEmpty)
+      r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
+    if (_selectedLegacyCodes.isNotEmpty)
+      r = r.where((x) => _selectedLegacyCodes.contains(x.part.legacyCode)).toList();
+    for (final e in _activeFilters.entries) {
+      if (e.value.isEmpty) continue;
+      r = r.where((x) {
+        final v = _getFieldValue(x.part, e.key).toLowerCase();
+        return e.value.every((t) => v.contains(t.toLowerCase()));
+      }).toList();
+    }
+    final all = r.expand((x) => _extractWPartNumbers(x.part)).toSet().toList()..sort();
+    if (_wPartNumberSearchQuery.isEmpty) return all;
+    return all.where((w) => w.toLowerCase().contains(_wPartNumberSearchQuery.toLowerCase())).toList();
+  }
+
+  List<String> _availableManufacturers() {
+    var r = List<SearchResult>.from(_searchResults);
+    for (final e in _activeFilters.entries) {
+      if (e.value.isEmpty) continue;
+      r = r.where((x) {
+        final v = _getFieldValue(x.part, e.key).toLowerCase();
+        return e.value.every((t) => v.contains(t.toLowerCase()));
+      }).toList();
+    }
+    final all = r.map((x) => x.part.manufacturer).where((m) => m.isNotEmpty).toSet().toList()..sort();
+    if (_manufacturerSearchQuery.isEmpty) return all;
+    return all.where((m) => m.toLowerCase().contains(_manufacturerSearchQuery.toLowerCase())).toList();
+  }
+
+  List<String> _availableLegacyCodes() {
+    var r = List<SearchResult>.from(_searchResults);
+    if (_selectedManufacturers.isNotEmpty)
+      r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
+    for (final e in _activeFilters.entries) {
+      if (e.value.isEmpty) continue;
+      r = r.where((x) {
+        final v = _getFieldValue(x.part, e.key).toLowerCase();
+        return e.value.every((t) => v.contains(t.toLowerCase()));
+      }).toList();
+    }
+    final all = r.map((x) => x.part.legacyCode).where((m) => m.isNotEmpty).toSet().toList()..sort();
+    if (_legacyCodeSearchQuery.isEmpty) return all;
+    return all.where((m) => m.toLowerCase().contains(_legacyCodeSearchQuery.toLowerCase())).toList();
+  }
+
+  // ── Reusable multi-select widget ──────────────────────────────────────
+
+  Widget _multiSelect({
+    required String label,
+    required IconData icon,
+    required TextEditingController controller,
+    required Set<String> selected,
+    required String searchQuery,
+    required ValueChanged<String> onSearchChanged,
+    required List<String> Function() getAvailable,
+    required ValueChanged<String> onToggle,
+    required VoidCallback onClear,
+  }) {
+    final available = getAvailable();
+    final active = selected.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        border: Border.all(
+            color: active ? _accent.withValues(alpha: 0.3) : _border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: _border))),
+          child: Row(children: [
+            Icon(icon,
+                size: 10, color: active ? _accent : _textDim),
+            const SizedBox(width: 5),
+            Text(label.toUpperCase(),
+                style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    color: active ? _accent : _textDim,
+                    letterSpacing: 1)),
+            const Spacer(),
+            if (active) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                color: _accent,
+                child: Text('${selected.length}',
+                    style: const TextStyle(
+                        fontSize: 8,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 3),
+              InkWell(
+                onTap: () {
+                  _playSound('tap');
+                  onClear();
+                },
+                child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child:
+                        Icon(Icons.close, size: 10, color: _textDim)),
+              ),
+            ],
+          ]),
+        ),
+        // Search
+        Container(
+          height: 28,
+          margin: const EdgeInsets.all(5),
+          color: _surfaceRaised,
+          child: TextField(
+            controller: controller,
+            style: const TextStyle(color: _text, fontSize: 10),
+            decoration: const InputDecoration(
+              hintText: 'Search...',
+              hintStyle: TextStyle(fontSize: 9, color: Color(0xFF444444)),
+              prefixIcon:
+                  Icon(Icons.search, size: 10, color: Color(0xFF444444)),
+              isDense: true,
+              contentPadding:
+                  EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+              border: InputBorder.none,
+            ),
+            onChanged: onSearchChanged,
+          ),
+        ),
+        // Tags
+        if (active)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            child: Wrap(
+              spacing: 3,
+              runSpacing: 3,
+              children: selected
+                  .map((v) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        color: _accent,
+                        child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(v,
+                                  style: const TextStyle(
+                                      fontSize: 8,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(width: 2),
+                              InkWell(
+                                  onTap: () {
+                                    _playSound('tap');
+                                    onToggle(v);
+                                  },
+                                  child: const Icon(Icons.close,
+                                      size: 8, color: Colors.white70)),
+                            ]),
+                      ))
+                  .toList(),
+            ),
+          ),
+        // List
+        if (available.isNotEmpty)
+          Container(
+            constraints: const BoxConstraints(maxHeight: 110),
+            margin: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            child: Scrollbar(
+              thumbVisibility: true,
+              child: ListView.builder(
+                shrinkWrap: true,
+                itemCount: available.length,
+                itemBuilder: (_, i) {
+                  final val = available[i];
+                  final sel = selected.contains(val);
+                  return InkWell(
+                    onTap: () {
+                      _playSound('tap');
+                      onToggle(val);
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: sel
+                            ? _accent.withValues(alpha: 0.08)
+                            : Colors.transparent,
+                        border: Border(
+                            bottom: BorderSide(
+                                color: _border.withValues(alpha: 0.5))),
+                      ),
+                      child: Row(children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color:
+                                sel ? _accent : Colors.transparent,
+                            border: Border.all(
+                                color: sel
+                                    ? _accent
+                                    : const Color(0xFF444444)),
+                          ),
+                          child: sel
+                              ? const Icon(Icons.check,
+                                  size: 8, color: Colors.white)
+                              : null,
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                            child: Text(val,
+                                style: TextStyle(
+                                    fontSize: 9,
+                                    color: sel ? _text : _textDim),
+                                overflow: TextOverflow.ellipsis)),
+                      ]),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        if (available.isEmpty && searchQuery.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: Text('No matches',
+                style: TextStyle(
+                    fontSize: 8,
+                    color: _textDim.withValues(alpha: 0.5),
+                    fontStyle: FontStyle.italic)),
+          ),
+      ]),
+    );
+  }
+
+  // ── Text tag filter ───────────────────────────────────────────────────
+
+  Widget _textFilter(String field) {
+    final tags = _activeFilters[field]!;
+    final controller = _filterControllers[field]!;
+    final active = tags.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: _surface,
+        border: Border.all(
+            color: active ? _accent.withValues(alpha: 0.3) : _border),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          decoration: const BoxDecoration(
+              border: Border(bottom: BorderSide(color: _border))),
+          child: Row(children: [
+            Text(_getFieldDisplayName(field).toUpperCase(),
+                style: TextStyle(
+                    fontSize: 8,
+                    fontWeight: FontWeight.w700,
+                    color: active ? _accent : _textDim,
+                    letterSpacing: 1)),
+            const Spacer(),
+            if (active) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                color: _accent,
+                child: Text('${tags.length}',
+                    style: const TextStyle(
+                        fontSize: 8,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700)),
+              ),
+              const SizedBox(width: 3),
+              InkWell(
+                onTap: () => _clearFieldFilters(field),
+                child: const Padding(
+                    padding: EdgeInsets.all(3),
+                    child:
+                        Icon(Icons.close, size: 10, color: _textDim)),
+              ),
+            ],
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(5),
+          child: Row(children: [
+            Expanded(
+              child: SizedBox(
+                height: 26,
+                child: TextField(
+                  controller: controller,
+                  focusNode: _filterFocusNodes[field],
+                  style: const TextStyle(color: _text, fontSize: 10),
+                  decoration: const InputDecoration(
+                    hintText: 'Add filter...',
+                    hintStyle:
+                        TextStyle(fontSize: 9, color: Color(0xFF444444)),
+                    isDense: true,
+                    contentPadding:
+                        EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                    filled: true,
+                    fillColor: _surfaceRaised,
+                    border: InputBorder.none,
+                  ),
+                  onSubmitted: (v) => _addFilter(field, v),
+                ),
+              ),
+            ),
+            const SizedBox(width: 3),
+            InkWell(
+              onTap: () => _addFilter(field, controller.text),
+              child: Container(
+                padding: const EdgeInsets.all(5),
+                color: _accent,
+                child:
+                    const Icon(Icons.add, color: Colors.white, size: 12),
+              ),
+            ),
+          ]),
+        ),
+        if (active)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            child: Wrap(
+              spacing: 3,
+              runSpacing: 3,
+              children: tags
+                  .map((tag) => Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
+                        color: _accent.withValues(alpha: 0.25),
+                        child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(tag,
+                                  style: const TextStyle(
+                                      fontSize: 8,
+                                      color: _text,
+                                      fontWeight: FontWeight.w500)),
+                              const SizedBox(width: 2),
+                              InkWell(
+                                  onTap: () => _removeFilter(field, tag),
+                                  child: const Icon(Icons.close,
+                                      size: 8, color: Colors.white70)),
+                            ]),
+                      ))
+                  .toList(),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  // ── Clear filters dialog ──────────────────────────────────────────────
+
+  Widget _buildClearFiltersDialog() {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        color: _surfaceRaised,
+        padding: const EdgeInsets.all(20),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            color: _accent,
+            child: const Icon(Icons.filter_alt_off,
+                color: Colors.white, size: 20),
+          ),
+          const SizedBox(height: 14),
+          const Text('Clear Filters?',
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w700, color: _text)),
+          const SizedBox(height: 6),
+          Text(
+              '$_totalActiveFilters active filter${_totalActiveFilters == 1 ? '' : 's'}',
+              style: const TextStyle(fontSize: 11, color: _textDim)),
+          const SizedBox(height: 16),
+          Row(children: [
+            Expanded(
+                child: _dlgBtn(
+                    'Cancel', Colors.transparent, _textDim,
+                    () => Navigator.pop(context))),
+            const SizedBox(width: 6),
+            Expanded(
+                child: _dlgBtn(
+                    'Keep', _border, _text,
+                    () => Navigator.pop(context, false))),
+            const SizedBox(width: 6),
+            Expanded(
+                child: _dlgBtn('Clear', _accent, Colors.white,
+                    () => Navigator.pop(context, true))),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Widget _dlgBtn(String text, Color bg, Color fg, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration:
+            BoxDecoration(color: bg, border: Border.all(color: _border)),
+        child: Center(
+            child: Text(text,
+                style: TextStyle(
+                    fontSize: 10,
+                    color: fg,
+                    fontWeight: FontWeight.w600))),
+      ),
+    );
+  }
+
+  // ── Toast notification ────────────────────────────────────────────────
+
+  Widget _buildToast() {
+    return Positioned(
+      bottom: 16,
+      left: 16,
+      right: 16,
+      child: AnimatedBuilder(
+        animation: _notificationAnimation,
+        builder: (_, __) {
+          if (_notificationMessage == null &&
+              _notificationAnimation.value == 0) {
+            return const SizedBox.shrink();
+          }
+          return Opacity(
+            opacity: _notificationAnimation.value,
+            child: Transform.translate(
+              offset:
+                  Offset(0, 16 * (1 - _notificationAnimation.value)),
+              child: Center(
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 380),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  color: _accent,
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(_notificationIcon ?? Icons.check_circle,
+                        color: Colors.white, size: 14),
+                    const SizedBox(width: 6),
+                    Flexible(
+                        child: Text(_notificationMessage ?? '',
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500))),
+                    const SizedBox(width: 10),
+                    InkWell(
+                      onTap: () {
+                        if (_authService.isLoggedIn) {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        color: Colors.white.withValues(alpha: 0.2),
+                        child: const Text('VIEW',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 1)),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ── Add-to-list modal ─────────────────────────────────────────────────
+
+  void _showAddToListModal(MroPart part) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        child: _buildGlassContainer(
-          padding: const EdgeInsets.all(24),
-          borderRadius: 24,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 500),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _maroonColor,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.precision_manufacturing,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            part.itemName.isNotEmpty
-                                ? part.itemName
-                                : 'Part Details',
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
-                          ),
-                          if (part.legacyCode.isNotEmpty)
-                            Text(
-                              part.legacyCode,
-                              style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.6),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.content_copy, size: 20),
-                      color: _maroonColor,
-                      tooltip: 'Copy All Info',
-                      onPressed: () {
-                        final buffer = StringBuffer();
-                        buffer.writeln('Part Number: ${part.itemName}');
-                        if (part.legacyCode.isNotEmpty) {
-                          buffer.writeln('Legacy Code: ${part.legacyCode}');
-                        }
-                        if (part.description.isNotEmpty) {
-                          buffer.writeln('Description: ${part.description}');
-                        }
-                        if (part.manufacturer.isNotEmpty) {
-                          buffer.writeln('Manufacturer: ${part.manufacturer}');
-                        }
-                        if (part.manufacturerPartNumber.isNotEmpty) {
-                          buffer.writeln('MPN: ${part.manufacturerPartNumber}');
-                        }
-                        if (part.location.isNotEmpty) {
-                          buffer.writeln('Location: ${part.location}');
-                        }
-                        if (part.unitCost > 0) {
-                          buffer.writeln(
-                            'Unit Cost: ${part.unitCost.toStringAsFixed(2)}',
-                          );
-                        }
-                        buffer.writeln('Min/Max: ${part.min} / ${part.max}');
+      builder: (ctx) => _AddToListModal(
+        part: part,
+        listService: _listService,
+        onAdded: (listName) {
+          _showNotification(
+            'Added "${part.displayName}" to $listName',
+            icon: Icons.playlist_add_check,
+          );
+        },
+      ),
+    );
+  }
 
-                        Clipboard.setData(
-                          ClipboardData(text: buffer.toString()),
-                        );
-                        _showNotification('Copied all part info to clipboard');
-                      },
+  // ── Part detail dialog ────────────────────────────────────────────────
+
+  void _showPartDetails(MroPart part) {
+    _playSound('tap');
+
+    // Build all rows (every single field, always shown)
+    final rows = <MapEntry<String, String>>[
+      MapEntry('Item Name', part.itemName.isNotEmpty ? part.itemName : '—'),
+      MapEntry('Legacy Code', part.legacyCode.isNotEmpty ? part.legacyCode : '—'),
+      MapEntry('Description', part.description.isNotEmpty ? part.description : '—'),
+      MapEntry('Manufacturer', part.manufacturer.isNotEmpty ? part.manufacturer : '—'),
+      MapEntry('Mfr Part #', part.manufacturerPartNumber.isNotEmpty ? part.manufacturerPartNumber : '—'),
+      MapEntry('Supplier Part #', part.supplierPartNumber.isNotEmpty ? part.supplierPartNumber : '—'),
+      MapEntry('Location', part.location.isNotEmpty ? part.location : '—'),
+      MapEntry('Unit Cost', part.unitCost > 0 ? '\$${part.unitCost.toStringAsFixed(2)}' : '—'),
+      MapEntry('Min', '${part.min}'),
+      MapEntry('Max', '${part.max}'),
+    ];
+
+    // Add any additional/dynamic fields from the part
+    for (final entry in part.additionalFields.entries) {
+      rows.add(MapEntry(entry.key, entry.value.toString()));
+    }
+
+    // Build full copy string
+    String fullCopyText() {
+      final buf = StringBuffer();
+      for (final r in rows) {
+        buf.writeln('${r.key}: ${r.value}');
+      }
+      return buf.toString();
+    }
+
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 560),
+          decoration: BoxDecoration(
+            color: _surfaceRaised,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: _border, width: 1),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── Header ──
+              Container(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                  border: Border(bottom: BorderSide(color: _accent.withValues(alpha: 0.15))),
+                ),
+                child: Row(children: [
+                  // Small accent dot
+                  Container(
+                    width: 32, height: 32,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: _accent.withValues(alpha: 0.1),
+                      border: Border.all(color: _accent.withValues(alpha: 0.25)),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close, color: Colors.white70),
+                    child: Icon(Icons.precision_manufacturing, color: _accent, size: 16),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          part.displayName,
+                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _text),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          part.legacyCode.isNotEmpty ? part.legacyCode : 'No legacy code',
+                          style: TextStyle(fontSize: 11, color: _textDim),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Copy All button
+                  InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: fullCopyText()));
+                      _showNotification('All fields copied to clipboard');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(6),
+                        color: _surface,
+                        border: Border.all(color: _border),
+                      ),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(Icons.copy_all, size: 13, color: _textDim),
+                        const SizedBox(width: 4),
+                        Text('COPY ALL', style: TextStyle(fontSize: 9, color: _textDim, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    icon: const Icon(Icons.close, color: _textDim, size: 18),
+                    splashRadius: 16,
+                  ),
+                ]),
+              ),
+
+              // ── Field rows (scrollable) ──
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(ctx).size.height * 0.55,
+                ),
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                    child: Column(
+                      children: rows.asMap().entries.map((entry) {
+                        final idx = entry.key;
+                        final row = entry.value;
+                        final isEven = idx % 2 == 0;
+                        return _detailRow(row.key, row.value, isEven);
+                      }).toList(),
+                    ),
+                  ),
+                ),
+              ),
+
+              // ── Footer actions ──
+              Container(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                decoration: BoxDecoration(
+                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                  border: const Border(top: BorderSide(color: _border)),
+                ),
+                child: Row(
+                  children: [
+                    if (part.unitCost > 0)
+                      Text(
+                        '\$${part.unitCost.toStringAsFixed(2)}',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22C55E)),
+                      ),
+                    const Spacer(),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () {
+                        _playSound('tap');
+                        if (!_authService.isLoggedIn) {
+                          _showNotification('Sign in to add parts', icon: Icons.login);
+                          return;
+                        }
+                        Navigator.pop(ctx);
+                        _showAddToListModal(part);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: _accent,
+                        ),
+                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.playlist_add, size: 14, color: Colors.white),
+                          SizedBox(width: 6),
+                          Text(
+                            'ADD TO LIST',
+                            style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 1),
+                          ),
+                        ]),
+                      ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 20),
-                if (part.description.isNotEmpty) ...[
-                  _buildDetailRow('Description', part.description),
-                  const SizedBox(height: 12),
-                ],
-                if (part.manufacturer.isNotEmpty) ...[
-                  _buildDetailRow('Manufacturer', part.manufacturer),
-                  const SizedBox(height: 12),
-                ],
-                if (part.manufacturerPartNumber.isNotEmpty) ...[
-                  _buildDetailRow('MPN', part.manufacturerPartNumber),
-                  const SizedBox(height: 12),
-                ],
-                if (part.location.isNotEmpty) ...[
-                  _buildDetailRow('Location', part.location),
-                  const SizedBox(height: 12),
-                ],
-                if (part.unitCost > 0) ...[
-                  _buildDetailRow(
-                    'Unit Cost',
-                    part.unitCost.toStringAsFixed(2),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                _buildDetailRow('Min/Max', '${part.min} / ${part.max}'),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildDetailRow(String label, String value) {
+  Widget _detailRow(String label, String value, bool isEven) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(10),
+        color: isEven ? _surface : _surfaceRaised,
+        borderRadius: BorderRadius.circular(6),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 100,
+            width: 110,
             child: Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.white.withValues(alpha: 0.5),
-                fontWeight: FontWeight.w500,
-              ),
+              label.toUpperCase(),
+              style: const TextStyle(fontSize: 10, color: _textDim, fontWeight: FontWeight.w700, letterSpacing: 0.5),
             ),
           ),
           Expanded(
-            child: Text(
+            child: SelectableText(
               value,
-              style: const TextStyle(fontSize: 13, color: Colors.white),
+              style: const TextStyle(fontSize: 13, color: _text, height: 1.35),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.copy, size: 16),
-            color: _maroonColor,
-            tooltip: 'Copy $label',
-            onPressed: () {
+          const SizedBox(width: 8),
+          InkWell(
+            borderRadius: BorderRadius.circular(4),
+            onTap: () {
               Clipboard.setData(ClipboardData(text: value));
-              _showNotification('Copied $label to clipboard');
+              _showNotification('Copied $label');
             },
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: _border,
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: const Icon(Icons.copy, size: 12, color: _textDim),
+            ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// Hover card with subtle border glow
+// ═════════════════════════════════════════════════════════════════════════
+
+class _HoverCard extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final Color borderColor;
+
+  const _HoverCard({
+    required this.child,
+    required this.onTap,
+    required this.borderColor,
+  });
+
+  @override
+  State<_HoverCard> createState() => _HoverCardState();
+}
+
+class _HoverCardState extends State<_HoverCard> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            color: _hovered
+                ? const Color(0xFF1E1E1E)
+                : const Color(0xFF141414),
+            border: Border.all(
+              color: _hovered
+                  ? const Color(0xFF3B82F6).withValues(alpha: 0.6)
+                  : widget.borderColor,
+              width: 1,
+            ),
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+// ── Add-to-list modal widget ────────────────────────────────────────────
+
+class _AddToListModal extends StatefulWidget {
+  final MroPart part;
+  final ListService listService;
+  final void Function(String listName) onAdded;
+
+  const _AddToListModal({
+    required this.part,
+    required this.listService,
+    required this.onAdded,
+  });
+
+  @override
+  State<_AddToListModal> createState() => _AddToListModalState();
+}
+
+class _AddToListModalState extends State<_AddToListModal> {
+  static const Color _bg = Color(0xFF0A0A0A);
+  static const Color _surface = Color(0xFF141414);
+  static const Color _border = Color(0xFF222222);
+  static const Color _accent = Color(0xFF3B82F6);
+  static const Color _text = Color(0xFFEAEAEA);
+  static const Color _textDim = Color(0xFF777777);
+
+  final _searchController = TextEditingController();
+  final _newListController = TextEditingController();
+  String _query = '';
+  bool _showNewListField = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _newListController.dispose();
+    super.dispose();
+  }
+
+  List<PartsList> get _filteredLists {
+    final lists = widget.listService.lists;
+    if (_query.isEmpty) return lists;
+    final q = _query.toLowerCase();
+    return lists.where((l) => l.name.toLowerCase().contains(q)).toList();
+  }
+
+  int _qtyInList(PartsList list) {
+    return widget.listService.getQuantityInList(list.id, widget.part);
+  }
+
+  Future<void> _addToList(PartsList list) async {
+    await widget.listService.addToList(list.id, widget.part);
+    if (mounted) setState(() {});
+    widget.onAdded(list.name);
+  }
+
+  Future<void> _createAndAdd() async {
+    final name = _newListController.text.trim();
+    if (name.isEmpty) return;
+    final created = await widget.listService.createList(name);
+    if (created != null) {
+      await widget.listService.addToList(created.id, widget.part);
+      widget.onAdded(created.name);
+    }
+    if (mounted) {
+      _newListController.clear();
+      setState(() => _showNewListField = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final lists = _filteredLists;
+    final partName = widget.part.displayName.isNotEmpty
+        ? widget.part.displayName
+        : 'Unknown Part';
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420, maxHeight: 520),
+        decoration: BoxDecoration(
+          color: _surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _border),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // ── Header ──
+            Container(
+              padding: const EdgeInsets.fromLTRB(18, 16, 12, 14),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: _border)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      color: _accent.withValues(alpha: 0.1),
+                    ),
+                    child: const Icon(Icons.playlist_add, size: 16, color: _accent),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Add to List',
+                            style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: _text)),
+                        const SizedBox(height: 2),
+                        Text(partName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                                fontSize: 11, color: _textDim)),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close, size: 16, color: _textDim),
+                    splashRadius: 16,
+                  ),
+                ],
+              ),
+            ),
+
+            // ── Search bar ──
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+              child: TextField(
+                controller: _searchController,
+                onChanged: (v) => setState(() => _query = v),
+                style: const TextStyle(color: _text, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Search lists...',
+                  hintStyle: const TextStyle(color: _textDim, fontSize: 12),
+                  prefixIcon:
+                      const Icon(Icons.search, size: 16, color: _textDim),
+                  filled: true,
+                  fillColor: _bg,
+                  contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: _border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: _border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: const BorderSide(color: _accent, width: 1.5),
+                  ),
+                ),
+              ),
+            ),
+
+            // ── Lists ──
+            Flexible(
+              child: lists.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        _query.isNotEmpty
+                            ? 'No lists matching "$_query"'
+                            : 'No lists yet \u2014 create one below',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 12, color: _textDim),
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 4),
+                      itemCount: lists.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: 4),
+                      itemBuilder: (ctx, i) {
+                        final list = lists[i];
+                        final qty = _qtyInList(list);
+                        final isInList = qty > 0;
+
+                        return Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _addToList(list),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(8),
+                                color: isInList
+                                    ? _accent.withValues(alpha: 0.06)
+                                    : _bg,
+                                border: Border.all(
+                                  color: isInList
+                                      ? _accent.withValues(alpha: 0.25)
+                                      : _border,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  // List icon
+                                  Container(
+                                    width: 28,
+                                    height: 28,
+                                    decoration: BoxDecoration(
+                                      borderRadius:
+                                          BorderRadius.circular(6),
+                                      color: isInList
+                                          ? _accent.withValues(alpha: 0.15)
+                                          : _border,
+                                    ),
+                                    child: Icon(
+                                      isInList
+                                          ? Icons.checklist
+                                          : Icons.list_alt,
+                                      size: 14,
+                                      color: isInList ? _accent : _textDim,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  // Name + item count
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(list.name,
+                                            maxLines: 1,
+                                            overflow:
+                                                TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: isInList
+                                                    ? _accent
+                                                    : _text)),
+                                        Text(
+                                            '${list.uniqueItemCount} items',
+                                            style: const TextStyle(
+                                                fontSize: 10,
+                                                color: _textDim)),
+                                      ],
+                                    ),
+                                  ),
+                                  // Quantity badge or add icon
+                                  if (isInList)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(10),
+                                        color: _accent,
+                                      ),
+                                      child: Text('$qty',
+                                          style: const TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.white,
+                                              fontWeight:
+                                                  FontWeight.w700)),
+                                    )
+                                  else
+                                    Container(
+                                      width: 26,
+                                      height: 26,
+                                      decoration: BoxDecoration(
+                                        borderRadius:
+                                            BorderRadius.circular(6),
+                                        color: _accent.withValues(alpha: 0.1),
+                                      ),
+                                      child: const Icon(Icons.add,
+                                          size: 14, color: _accent),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+
+            // ── Create new list / footer ──
+            Container(
+              padding: const EdgeInsets.fromLTRB(14, 10, 14, 14),
+              decoration: const BoxDecoration(
+                border: Border(top: BorderSide(color: _border)),
+              ),
+              child: _showNewListField
+                  ? Row(children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _newListController,
+                          autofocus: true,
+                          style: const TextStyle(
+                              color: _text, fontSize: 13),
+                          onSubmitted: (_) => _createAndAdd(),
+                          decoration: InputDecoration(
+                            hintText: 'New list name...',
+                            hintStyle: const TextStyle(
+                                color: _textDim, fontSize: 12),
+                            filled: true,
+                            fillColor: _bg,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: _border),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide:
+                                  const BorderSide(color: _border),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              borderSide: const BorderSide(
+                                  color: _accent, width: 1.5),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(8),
+                        onTap: _createAndAdd,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: _accent,
+                          ),
+                          child: const Text('Create & Add',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700)),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      InkWell(
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () =>
+                            setState(() => _showNewListField = false),
+                        child: const Padding(
+                          padding: EdgeInsets.all(6),
+                          child: Icon(Icons.close,
+                              size: 14, color: _textDim),
+                        ),
+                      ),
+                    ])
+                  : InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: () =>
+                          setState(() => _showNewListField = true),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                              color: _accent.withValues(alpha: 0.3)),
+                          color: _accent.withValues(alpha: 0.05),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add, size: 14, color: _accent),
+                            SizedBox(width: 6),
+                            Text('Create New List',
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    color: _accent,
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

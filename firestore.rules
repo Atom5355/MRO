@@ -1,0 +1,68 @@
+// Firestore Security Rules for MRO Engine
+// Deploy these rules in the Firebase Console > Firestore Database > Rules
+//
+// rules_version = '2';
+//
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//
+//     // ── Users collection ──
+//     // Each user can only read/write their own profile document
+//     match /users/{userId} {
+//       allow read, write: if request.auth != null && request.auth.uid == userId;
+//
+//       // ── User's lists sub-collection ──
+//       // Each user can only access their own lists
+//       match /lists/{listId} {
+//         allow read, write: if request.auth != null && request.auth.uid == userId;
+//
+//         // Validate list document structure on create/update
+//         allow create: if request.auth != null
+//                        && request.auth.uid == userId
+//                        && request.resource.data.keys().hasAny(['name', 'items', 'createdAt', 'updatedAt'])
+//                        && request.resource.data.name is string
+//                        && request.resource.data.name.size() <= 200;
+//
+//         allow update: if request.auth != null
+//                        && request.auth.uid == userId
+//                        && request.resource.data.name is string
+//                        && request.resource.data.name.size() <= 200;
+//
+//         allow delete: if request.auth != null && request.auth.uid == userId;
+//       }
+//     }
+//
+//     // ── Deny everything else by default ──
+//     match /{document=**} {
+//       allow read, write: if false;
+//     }
+//   }
+// }
+
+// ────────────────────────────────────────────────────────────────────────
+// COPY THE RULES BELOW (without the // comment prefixes) into your
+// Firebase Console > Firestore Database > Rules tab, then click Publish.
+// ────────────────────────────────────────────────────────────────────────
+
+/*
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /lists/{listId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+*/
