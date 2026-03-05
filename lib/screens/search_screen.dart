@@ -115,7 +115,12 @@ class _SearchScreenState extends State<SearchScreen>
       TextEditingController();
   final Set<String> _selectedLegacyCodes = {};
   String _legacyCodeSearchQuery = '';
-  bool _wPartNumberOnly = false;
+
+    // W part number multi-select filter state
+    final TextEditingController _wPartNumberSearchController =
+      TextEditingController();
+    final Set<String> _selectedWPartNumbers = {};
+    String _wPartNumberSearchQuery = '';
 
   // Notification state
   String? _notificationMessage;
@@ -213,6 +218,7 @@ class _SearchScreenState extends State<SearchScreen>
     _notificationController.dispose();
     _manufacturerSearchController.dispose();
     _legacyCodeSearchController.dispose();
+    _wPartNumberSearchController.dispose();
     _cartService.removeListener(_onCartChanged);
     for (final controller in _filterControllers.values) {
       controller.dispose();
@@ -274,13 +280,10 @@ class _SearchScreenState extends State<SearchScreen>
       }).toList();
     }
 
-    if (_wPartNumberOnly) {
+    if (_selectedWPartNumbers.isNotEmpty) {
       results = results.where((r) {
-        final manufacturerPartNumber =
-            r.part.manufacturerPartNumber.trim().toLowerCase();
-        final supplierPartNumber = r.part.supplierPartNumber.trim().toLowerCase();
-        return manufacturerPartNumber.startsWith('w') ||
-            supplierPartNumber.startsWith('w');
+        final partWNumbers = _extractWPartNumbers(r.part);
+        return partWNumbers.any(_selectedWPartNumbers.contains);
       }).toList();
     }
 
@@ -300,6 +303,19 @@ class _SearchScreenState extends State<SearchScreen>
     setState(() {
       _filteredResults = results;
     });
+  }
+
+  Set<String> _extractWPartNumbers(MroPart part) {
+    final values = <String>{
+      part.itemName.trim(),
+      part.manufacturerPartNumber.trim(),
+      part.supplierPartNumber.trim(),
+    };
+
+    return values
+        .where((value) => value.isNotEmpty)
+        .where((value) => value.toLowerCase().startsWith('w'))
+        .toSet();
   }
 
   String _getFieldValue(MroPart part, String field) {
@@ -379,7 +395,9 @@ class _SearchScreenState extends State<SearchScreen>
       _selectedLegacyCodes.clear();
       _legacyCodeSearchController.clear();
       _legacyCodeSearchQuery = '';
-      _wPartNumberOnly = false;
+      _selectedWPartNumbers.clear();
+      _wPartNumberSearchController.clear();
+      _wPartNumberSearchQuery = '';
     });
     _applyFilters();
   }
@@ -388,7 +406,7 @@ class _SearchScreenState extends State<SearchScreen>
     return _activeFilters.values.fold(0, (sum, tags) => sum + tags.length) +
         _selectedManufacturers.length +
       _selectedLegacyCodes.length +
-      (_wPartNumberOnly ? 1 : 0);
+      _selectedWPartNumbers.length;
   }
 
   Future<void> _confirmAndSearch(String query) async {
@@ -1250,70 +1268,326 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Widget _buildWPartNumberQuickFilter() {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    final hasSelections = _selectedWPartNumbers.isNotEmpty;
+
+    List<SearchResult> resultsForWList = List.from(_searchResults);
+
+    if (_selectedManufacturers.isNotEmpty) {
+      resultsForWList = resultsForWList.where((r) {
+        return _selectedManufacturers.contains(r.part.manufacturer);
+      }).toList();
+    }
+
+    if (_selectedLegacyCodes.isNotEmpty) {
+      resultsForWList = resultsForWList.where((r) {
+        return _selectedLegacyCodes.contains(r.part.legacyCode);
+      }).toList();
+    }
+
+    for (final entry in _activeFilters.entries) {
+      final field = entry.key;
+      final tags = entry.value;
+
+      if (tags.isEmpty) continue;
+
+      resultsForWList = resultsForWList.where((r) {
+        final fieldValue = _getFieldValue(r.part, field).toLowerCase();
+        return tags.every((tag) => fieldValue.contains(tag.toLowerCase()));
+      }).toList();
+    }
+
+    final availableWPartNumbers =
+        resultsForWList
+            .expand((r) => _extractWPartNumbers(r.part))
+            .toSet()
+            .toList()
+          ..sort();
+
+    final filteredWPartNumbers = _wPartNumberSearchQuery.isEmpty
+        ? availableWPartNumbers
+        : availableWPartNumbers
+              .where(
+                (w) =>
+                    w.toLowerCase().contains(_wPartNumberSearchQuery.toLowerCase()),
+              )
+              .toList();
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: _wPartNumberOnly
-            ? _maroonColor.withValues(alpha: 0.16)
+        color: hasSelections
+            ? const Color(0xFF505050).withValues(alpha: 0.1)
             : Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: _wPartNumberOnly
-              ? _maroonColor.withValues(alpha: 0.6)
+          color: hasSelections
+              ? const Color(0xFF505050).withValues(alpha: 0.3)
               : Colors.white.withValues(alpha: 0.1),
         ),
       ),
-      child: InkWell(
-        onTap: () {
-          _playSound('tap');
-          setState(() {
-            _wPartNumberOnly = !_wPartNumberOnly;
-          });
-          _applyFilters();
-        },
-        borderRadius: BorderRadius.circular(8),
-        child: Row(
-          children: [
-            Container(
-              width: 16,
-              height: 16,
-              decoration: BoxDecoration(
-                color: _wPartNumberOnly ? _maroonColor : Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: _wPartNumberOnly
-                      ? _maroonColor
-                      : Colors.white.withValues(alpha: 0.4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.tag, size: 14, color: _maroonColor),
+                const SizedBox(width: 6),
+                Text(
+                  'W Part Numbers',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: hasSelections
+                        ? _maroonColor
+                        : Colors.white.withValues(alpha: 0.6),
+                  ),
                 ),
-              ),
-              child: _wPartNumberOnly
-                  ? const Icon(Icons.check, size: 11, color: Colors.white)
-                  : null,
+                if (hasSelections) ...[
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _maroonColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_selectedWPartNumbers.length}',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: _maroonColor,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: () {
+                      _playSound('tap');
+                      setState(() {
+                        _selectedWPartNumbers.clear();
+                      });
+                      _applyFilters();
+                    },
+                    borderRadius: BorderRadius.circular(6),
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Icon(
+                        Icons.close,
+                        size: 12,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'W Part Numbers',
-                style: TextStyle(
-                  color: _wPartNumberOnly
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.75),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(6),
+            child: TextField(
+              controller: _wPartNumberSearchController,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'Search W part numbers...',
+                hintStyle: TextStyle(
                   fontSize: 12,
-                  fontWeight:
-                      _wPartNumberOnly ? FontWeight.w600 : FontWeight.w500,
+                  color: Colors.white.withValues(alpha: 0.3),
+                ),
+                prefixIcon: Icon(
+                  Icons.search,
+                  size: 16,
+                  color: Colors.white.withValues(alpha: 0.4),
+                ),
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: 0.05),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: _maroonColor,
+                    width: 1,
+                  ),
+                ),
+              ),
+              onChanged: (value) {
+                setState(() {
+                  _wPartNumberSearchQuery = value;
+                });
+              },
+            ),
+          ),
+          if (hasSelections)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: _selectedWPartNumbers.map((wPartNumber) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _maroonColor,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          wPartNumber,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        InkWell(
+                          onTap: () {
+                            _playSound('tap');
+                            setState(() {
+                              _selectedWPartNumbers.remove(wPartNumber);
+                            });
+                            _applyFilters();
+                          },
+                          child: const Icon(
+                            Icons.close,
+                            size: 12,
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          if (filteredWPartNumbers.isNotEmpty)
+            Container(
+              constraints: const BoxConstraints(maxHeight: 132),
+              margin: const EdgeInsets.fromLTRB(6, 0, 6, 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.03),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Scrollbar(
+                thumbVisibility: true,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: filteredWPartNumbers.length,
+                  itemBuilder: (context, index) {
+                    final wPartNumber = filteredWPartNumbers[index];
+                    final isSelected = _selectedWPartNumbers.contains(
+                      wPartNumber,
+                    );
+                    return InkWell(
+                      onTap: () {
+                        _playSound('tap');
+                        setState(() {
+                          if (isSelected) {
+                            _selectedWPartNumbers.remove(wPartNumber);
+                          } else {
+                            _selectedWPartNumbers.add(wPartNumber);
+                          }
+                        });
+                        _applyFilters();
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF505050).withValues(alpha: 0.2)
+                              : Colors.transparent,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: Colors.white.withValues(alpha: 0.05),
+                            ),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? _maroonColor
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? _maroonColor
+                                      : Colors.white.withValues(alpha: 0.3),
+                                  width: 1.2,
+                                ),
+                              ),
+                              child: isSelected
+                                  ? const Icon(
+                                      Icons.check,
+                                      size: 10,
+                                      color: Colors.white,
+                                    )
+                                  : null,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                wPartNumber,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isSelected
+                                      ? Colors.white
+                                      : Colors.white.withValues(alpha: 0.7),
+                                  fontWeight: isSelected
+                                      ? FontWeight.w500
+                                      : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ),
-            Text(
-              'MPN/Supplier',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.5),
-                fontSize: 10,
+          if (filteredWPartNumbers.isEmpty && _wPartNumberSearchQuery.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Text(
+                'No W part numbers found',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontStyle: FontStyle.italic,
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
