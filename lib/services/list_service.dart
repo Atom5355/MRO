@@ -243,8 +243,16 @@ class ListService extends ChangeNotifier {
 
   /// Add a part to a specific list
   Future<void> addToList(String listId, MroPart part, {int quantity = 1}) async {
+    if (!_auth.isLoggedIn) {
+      debugPrint('[ListService] addToList: user not logged in');
+      return;
+    }
+
     final idx = _lists.indexWhere((l) => l.id == listId);
-    if (idx < 0) return;
+    if (idx < 0) {
+      debugPrint('[ListService] addToList: list $listId not found in local state');
+      return;
+    }
 
     final list = _lists[idx];
     final partId = part.legacyCode.isNotEmpty
@@ -258,8 +266,10 @@ class ListService extends ChangeNotifier {
       list.items.add(ListItem.fromPart(part));
     }
     list.updatedAt = DateTime.now();
-    notifyListeners();
+
+    // Save FIRST, notify after — prevents race with listeners
     await _saveList(listId);
+    notifyListeners();
   }
 
   /// Add part to active list (convenience)
@@ -283,8 +293,8 @@ class ListService extends ChangeNotifier {
 
     _lists[idx].items.removeWhere((i) => i.partId == partId);
     _lists[idx].updatedAt = DateTime.now();
-    notifyListeners();
     await _saveList(listId);
+    notifyListeners();
   }
 
   /// Update quantity
@@ -303,8 +313,8 @@ class ListService extends ChangeNotifier {
       _lists[idx].items[itemIdx].quantity = quantity;
     }
     _lists[idx].updatedAt = DateTime.now();
-    notifyListeners();
     await _saveList(listId);
+    notifyListeners();
   }
 
   /// Check if a part is in the active list
@@ -342,21 +352,46 @@ class ListService extends ChangeNotifier {
     if (idx < 0) return;
     _lists[idx].items.clear();
     _lists[idx].updatedAt = DateTime.now();
-    notifyListeners();
     await _saveList(listId);
+    notifyListeners();
   }
 
   /// Persist list to Firestore
   Future<void> _saveList(String listId) async {
+    if (!_auth.isLoggedIn) {
+      debugPrint('[ListService] _saveList: user not logged in, skipping');
+      return;
+    }
+
     final idx = _lists.indexWhere((l) => l.id == listId);
-    if (idx < 0) return;
+    if (idx < 0) {
+      debugPrint('[ListService] _saveList: list $listId not found');
+      return;
+    }
+
+    final list = _lists[idx];
+    final itemMaps = list.items.map((i) => i.toMap()).toList();
+
+    debugPrint('[ListService] _saveList: saving ${itemMaps.length} items to list "${list.name}" ($listId)');
+
     try {
-      await _listsRef.doc(listId).update({
-        'items': _lists[idx].items.map((i) => i.toMap()).toList(),
+      final docRef = _firestore
+          .collection('users')
+          .doc(_auth.uid)
+          .collection('lists')
+          .doc(listId);
+
+      await docRef.set({
+        'name': list.name,
+        'items': itemMaps,
+        'createdAt': Timestamp.fromDate(list.createdAt),
         'updatedAt': FieldValue.serverTimestamp(),
-      });
-    } catch (e) {
-      debugPrint('Error saving list: $e');
+      }, SetOptions(merge: false));
+
+      debugPrint('[ListService] _saveList: SUCCESS — ${itemMaps.length} items written');
+    } catch (e, stack) {
+      debugPrint('[ListService] _saveList ERROR: $e');
+      debugPrint('[ListService] Stack: $stack');
     }
   }
 }
