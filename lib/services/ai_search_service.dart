@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'dart:developer' as developer;
+import 'package:http/http.dart' as http;
 import '../models/mro_part.dart';
 import 'advanced_search_service.dart';
 
@@ -18,21 +19,15 @@ class _RankingResult {
 /// AI-powered search service using Google Gemini
 /// Gemini directly evaluates and ranks parts - not just keyword extraction
 class AISearchService {
-  late final GenerativeModel _model;
   final AdvancedSearchService _localSearch = AdvancedSearchService();
+  static const String _modelId = 'gemini-3.1-flash-lite-preview';
+  static const String _systemInstruction =
+      'Use high thinking effort for ranking accuracy. Reason carefully and prioritize precise technical matching.';
 
   bool _initialized = false;
 
   AISearchService() {
     if (geminiApiKey.isNotEmpty) {
-      _model = GenerativeModel(
-        model: 'gemini-3-pro-preview',
-        apiKey: geminiApiKey,
-        generationConfig: GenerationConfig(
-          temperature: 0.5,
-          maxOutputTokens: 60000, // Need more for ranking results
-        ),
-      );
       _initialized = true;
     }
   }
@@ -82,7 +77,7 @@ class AISearchService {
         tokenUsage: rankingResult.tokenUsage,
       );
     } catch (e) {
-      print('AI search error: $e');
+      developer.log('AI search error: $e', name: 'AISearchService');
       final results = _localSearch.search(parts, query);
       return AISearchResult(
         results: results,
@@ -268,16 +263,64 @@ Rules:
 - Maximum 50 results
 - Order by score descending''';
 
-    final response = await _model.generateContent([Content.text(prompt)]);
-    final text = response.text ?? '{}';
+    final uri = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/$_modelId:generateContent?key=$geminiApiKey',
+    );
+
+    final body = {
+      'system_instruction': {
+        'parts': [
+          {'text': _systemInstruction},
+        ],
+      },
+      'contents': [
+        {
+          'role': 'user',
+          'parts': [
+            {'text': prompt},
+          ],
+        },
+      ],
+      'generationConfig': {
+        'temperature': 0.5,
+        'maxOutputTokens': 60000,
+        'thinkingConfig': {'thinkingLevel': 'high'},
+      },
+    };
+
+    final response = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(body),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Gemini API error (${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
+    final candidatesJson = responseJson['candidates'] as List<dynamic>? ?? [];
+    String text = '{}';
+    if (candidatesJson.isNotEmpty) {
+      final firstCandidate = candidatesJson.first as Map<String, dynamic>;
+      final content = firstCandidate['content'] as Map<String, dynamic>?;
+      final parts = content?['parts'] as List<dynamic>? ?? [];
+      final textPart = parts.cast<Map<String, dynamic>?>().firstWhere(
+        (p) => (p?['text'] as String?) != null,
+        orElse: () => null,
+      );
+      text = textPart?['text'] as String? ?? '{}';
+    }
 
     // Extract token usage
     TokenUsage? tokenUsage;
-    if (response.usageMetadata != null) {
-      final metadata = response.usageMetadata!;
+    final usage = responseJson['usageMetadata'] as Map<String, dynamic>?;
+    if (usage != null) {
       tokenUsage = TokenUsage.fromCounts(
-        metadata.promptTokenCount ?? 0,
-        metadata.candidatesTokenCount ?? 0,
+        (usage['promptTokenCount'] as num?)?.toInt() ?? 0,
+        (usage['candidatesTokenCount'] as num?)?.toInt() ?? 0,
       );
     }
 
@@ -308,7 +351,10 @@ Rules:
 
       return _RankingResult(results, tokenUsage);
     } catch (e) {
-      print('Failed to parse AI ranking response: $text');
+      developer.log(
+        'Failed to parse AI ranking response: $text',
+        name: 'AISearchService',
+      );
       // Return candidates with basic ordering
       final fallbackResults = candidates
           .asMap()
@@ -395,7 +441,7 @@ class TokenUsage {
     required this.cost,
   });
 
-  /// Calculate cost based on Gemini 3 Pro pricing
+  /// Calculate estimated cost based on configured Gemini pricing assumptions
   /// Input: $2.00 per 1M tokens (for prompts <= 200k)
   /// Output: $12.00 per 1M tokens (for prompts <= 200k)
   factory TokenUsage.fromCounts(int inputTokens, int outputTokens) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'screens/search_screen.dart';
 import 'screens/loading_screen.dart';
 import 'services/mro_data_service.dart';
+import 'theme/app_theme.dart';
 
 void main() {
   runApp(const MroEngineApp());
@@ -16,17 +17,10 @@ class MroEngineApp extends StatelessWidget {
       title: 'MRO Parts Search Engine',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0D0D0D),
-        colorScheme: ColorScheme.dark(
-          primary: const Color(0xFF505050),
-          secondary: const Color(0xFFCC4444),
-          surface: const Color(0xFF1A1A2E),
-          onSurface: Colors.white,
-        ),
-        fontFamily: 'SF Pro Display',
-        useMaterial3: true,
+      darkTheme: AppTheme.dark(),
+      theme: AppTheme.dark(),
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        scrollbars: true,
       ),
       home: const AppInitializer(),
     );

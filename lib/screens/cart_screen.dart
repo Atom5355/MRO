@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +12,11 @@ class CartScreen extends StatefulWidget {
 }
 
 class _CartScreenState extends State<CartScreen> {
+  static const Color _surface = Color(0xFF171B21);
+  static const Color _surfaceAlt = Color(0xFF1D222B);
+  static const Color _border = Color(0xFF2A303A);
+  static const Color _accent = Color(0xFFD9DEE7);
+
   final CartService _cartService = CartService();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _workOrderController = TextEditingController();
@@ -42,15 +46,11 @@ class _CartScreenState extends State<CartScreen> {
         backgroundColor: Colors.transparent,
         child: Container(
           constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            color: _surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _border),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -61,10 +61,9 @@ class _CartScreenState extends State<CartScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                      color: _surfaceAlt,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
                     ),
                     child: const Icon(
                       Icons.print,
@@ -76,7 +75,7 @@ class _CartScreenState extends State<CartScreen> {
                   const Text(
                     'Print Parts List',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
@@ -123,12 +122,11 @@ class _CartScreenState extends State<CartScreen> {
                         },
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
+                            color: _surfaceAlt,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _border),
                           ),
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -180,24 +178,20 @@ class _CartScreenState extends State<CartScreen> {
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-            prefixIcon: Icon(icon, size: 18, color: const Color(0xFF00D9FF)),
+            prefixIcon: Icon(icon, size: 18, color: _accent),
             filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.05),
+            fillColor: _surfaceAlt,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
+              borderSide: const BorderSide(color: _border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
+              borderSide: const BorderSide(color: _border),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF00D9FF)),
+              borderSide: const BorderSide(color: _accent),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
@@ -396,34 +390,24 @@ class _CartScreenState extends State<CartScreen> {
     EdgeInsets? padding,
     EdgeInsets? margin,
     double borderRadius = 20,
-    double blur = 10,
   }) {
     return Container(
       margin: margin,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(borderRadius),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-          child: Container(
-            padding: padding,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(borderRadius),
-              color: Colors.white.withValues(alpha: 0.05),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.1),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.2),
-                  blurRadius: 20,
-                  offset: const Offset(0, 10),
-                ),
-              ],
+      child: Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(borderRadius),
+          color: _surface,
+          border: Border.all(color: _border),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.18),
+              blurRadius: 14,
+              offset: const Offset(0, 6),
             ),
-            child: child,
-          ),
+          ],
         ),
+        child: child,
       ),
     );
   }
@@ -431,74 +415,17 @@ class _CartScreenState extends State<CartScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
-      body: Stack(
-        children: [
-          // Background gradient
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF0D0D0D),
-                  Color(0xFF1A1A2E),
-                  Color(0xFF16213E),
-                  Color(0xFF0F0F23),
-                ],
-              ),
+      backgroundColor: const Color(0xFF101216),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: _cartService.isEmpty ? _buildEmptyCart() : _buildCartList(),
             ),
-          ),
-          // Floating orbs
-          Positioned(
-            top: -100,
-            right: -100,
-            child: Container(
-              width: 300,
-              height: 300,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF6C63FF).withValues(alpha: 0.3),
-                    const Color(0xFF6C63FF).withValues(alpha: 0.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            bottom: -150,
-            left: -100,
-            child: Container(
-              width: 400,
-              height: 400,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                gradient: RadialGradient(
-                  colors: [
-                    const Color(0xFF00D9FF).withValues(alpha: 0.2),
-                    const Color(0xFF00D9FF).withValues(alpha: 0.0),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          // Main content
-          SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(),
-                Expanded(
-                  child: _cartService.isEmpty
-                      ? _buildEmptyCart()
-                      : _buildCartList(),
-                ),
-                if (!_cartService.isEmpty) _buildFooter(),
-              ],
-            ),
-          ),
-        ],
+            if (!_cartService.isEmpty) _buildFooter(),
+          ],
+        ),
       ),
     );
   }
@@ -515,18 +442,18 @@ class _CartScreenState extends State<CartScreen> {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _border),
               ),
               child: const Icon(Icons.arrow_back, color: Colors.white),
             ),
           ),
           const SizedBox(width: 12),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-              ),
-              borderRadius: BorderRadius.circular(16),
+              color: _surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _border),
             ),
             child: const Icon(
               Icons.shopping_cart,
@@ -541,7 +468,7 @@ class _CartScreenState extends State<CartScreen> {
               const Text(
                 'Parts Cart',
                 style: TextStyle(
-                  fontSize: 24,
+                  fontSize: 20,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
@@ -549,7 +476,7 @@ class _CartScreenState extends State<CartScreen> {
               Text(
                 '${_cartService.uniqueItemCount} items • ${_cartService.itemCount} total qty',
                 style: TextStyle(
-                  fontSize: 13,
+                    fontSize: 12,
                   color: Colors.white.withValues(alpha: 0.6),
                 ),
               ),
@@ -564,6 +491,7 @@ class _CartScreenState extends State<CartScreen> {
                 decoration: BoxDecoration(
                   color: Colors.red.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.35)),
                 ),
                 child: const Icon(
                   Icons.delete_outline,
@@ -588,13 +516,9 @@ class _CartScreenState extends State<CartScreen> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color(0xFF6C63FF).withValues(alpha: 0.3),
-                    const Color(0xFF00D9FF).withValues(alpha: 0.3),
-                  ],
-                ),
+                color: _surfaceAlt,
                 borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: _border),
               ),
               child: const Icon(
                 Icons.shopping_cart_outlined,
@@ -631,10 +555,9 @@ class _CartScreenState extends State<CartScreen> {
                     vertical: 14,
                   ),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                    ),
+                    color: _surfaceAlt,
                     borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _border),
                   ),
                   child: const Text(
                     'Browse Parts',
@@ -654,13 +577,16 @@ class _CartScreenState extends State<CartScreen> {
   }
 
   Widget _buildCartList() {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      itemCount: _cartService.items.length,
-      itemBuilder: (context, index) {
-        final item = _cartService.items[index];
-        return _buildCartItem(item, index);
-      },
+    return Scrollbar(
+      thumbVisibility: true,
+      child: ListView.builder(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        itemCount: _cartService.items.length,
+        itemBuilder: (context, index) {
+          final item = _cartService.items[index];
+          return _buildCartItem(item, index);
+        },
+      ),
     );
   }
 
@@ -671,64 +597,64 @@ class _CartScreenState extends State<CartScreen> {
       curve: Curves.easeOutCubic,
       builder: (context, value, child) {
         return Transform.translate(
-          offset: Offset(20 * (1 - value), 0),
+          offset: Offset(16 * (1 - value), 0),
           child: Opacity(opacity: value, child: child),
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 12),
+        margin: const EdgeInsets.only(bottom: 8),
         child: _buildGlassContainer(
-          padding: const EdgeInsets.all(16),
-          borderRadius: 16,
+          padding: const EdgeInsets.all(12),
+          borderRadius: 12,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 children: [
-                  // Item Name badge
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
+                        horizontal: 12,
+                        vertical: 6,
                       ),
                       decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                        ),
-                        borderRadius: BorderRadius.circular(10),
+                        color: _surfaceAlt,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: _border),
                       ),
                       child: Text(
                         item.part.itemName.isNotEmpty
                             ? item.part.itemName
                             : 'No Item Name',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                          fontSize: 13,
-                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  // Delete button
+                  const SizedBox(width: 8),
                   IconButton(
                     onPressed: () {
                       HapticFeedback.lightImpact();
                       _cartService.removeFromCart(item.part);
                     },
                     icon: Container(
-                      padding: const EdgeInsets.all(8),
+                      padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.2),
+                        color: Colors.red.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.red.withValues(alpha: 0.35),
+                        ),
                       ),
                       child: const Icon(
                         Icons.delete_outline,
                         color: Colors.redAccent,
-                        size: 18,
+                        size: 16,
                       ),
                     ),
                     padding: EdgeInsets.zero,
@@ -736,83 +662,51 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              // Part details
+              const SizedBox(height: 10),
               Row(
                 children: [
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (item.part.legacyCode.isNotEmpty) ...[
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.tag,
-                                size: 14,
-                                color: Colors.white.withValues(alpha: 0.4),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'Legacy: ${item.part.legacyCode}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
+                        if (item.part.legacyCode.isNotEmpty)
+                          Text(
+                            'Legacy: ${item.part.legacyCode}',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.white.withValues(alpha: 0.72),
+                            ),
                           ),
-                          const SizedBox(height: 4),
-                        ],
-                        if (item.part.manufacturerPartNumber.isNotEmpty) ...[
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.qr_code,
-                                size: 14,
-                                color: Colors.white.withValues(alpha: 0.4),
+                        if (item.part.manufacturerPartNumber.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(
+                              'MPN: ${item.part.manufacturerPartNumber}',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.white.withValues(alpha: 0.72),
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                'MPN: ${item.part.manufacturerPartNumber}',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white.withValues(alpha: 0.7),
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
-                          const SizedBox(height: 4),
-                        ],
                         if (item.part.location.isNotEmpty)
-                          Row(
-                            children: [
-                              Icon(
-                                Icons.location_on,
-                                size: 14,
-                                color: Colors.orange.withValues(alpha: 0.8),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(
+                              item.part.location,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Colors.orange,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                item.part.location,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.orange,
-                                ),
-                              ),
-                            ],
+                            ),
                           ),
                       ],
                     ),
                   ),
-                  // Quantity controls
                   Container(
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.1),
-                      ),
+                      color: _surfaceAlt,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -822,19 +716,19 @@ class _CartScreenState extends State<CartScreen> {
                             HapticFeedback.lightImpact();
                             _cartService.decrementQuantity(item.part);
                           },
-                          icon: const Icon(Icons.remove, size: 18),
+                          icon: const Icon(Icons.remove, size: 16),
                           color: Colors.white70,
                           padding: const EdgeInsets.all(8),
                           constraints: const BoxConstraints(),
                         ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Text(
                             '${item.quantity}',
                             style: const TextStyle(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                              fontSize: 13,
                             ),
                           ),
                         ),
@@ -843,8 +737,8 @@ class _CartScreenState extends State<CartScreen> {
                             HapticFeedback.lightImpact();
                             _cartService.incrementQuantity(item.part);
                           },
-                          icon: const Icon(Icons.add, size: 18),
-                          color: const Color(0xFF00D9FF),
+                          icon: const Icon(Icons.add, size: 16),
+                          color: _accent,
                           padding: const EdgeInsets.all(8),
                           constraints: const BoxConstraints(),
                         ),
@@ -853,25 +747,24 @@ class _CartScreenState extends State<CartScreen> {
                   ),
                 ],
               ),
-              // Unit cost if available
               if (item.part.unitCost > 0) ...[
-                const SizedBox(height: 12),
+                const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      '${item.part.unitCost.toStringAsFixed(2)} × ${item.quantity}',
+                      '\$${item.part.unitCost.toStringAsFixed(2)} × ${item.quantity}',
                       style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withValues(alpha: 0.5),
+                        fontSize: 11,
+                        color: Colors.white.withValues(alpha: 0.55),
                       ),
                     ),
                     Text(
-                      item.lineTotal.toStringAsFixed(2),
+                      '\$${item.lineTotal.toStringAsFixed(2)}',
                       style: const TextStyle(
-                        fontSize: 14,
+                        fontSize: 13,
                         fontWeight: FontWeight.bold,
-                        color: Color(0xFF00D9FF),
+                        color: _accent,
                       ),
                     ),
                   ],
@@ -887,8 +780,8 @@ class _CartScreenState extends State<CartScreen> {
   Widget _buildFooter() {
     return _buildGlassContainer(
       padding: const EdgeInsets.all(20),
-      margin: const EdgeInsets.all(16),
-      borderRadius: 20,
+      margin: const EdgeInsets.all(12),
+      borderRadius: 12,
       child: Column(
         children: [
           // Summary
@@ -920,9 +813,9 @@ class _CartScreenState extends State<CartScreen> {
                 Text(
                   '\$${_cartService.total.toStringAsFixed(2)}',
                   style: const TextStyle(
-                    color: Color(0xFF00D9FF),
+                    color: _accent,
                     fontWeight: FontWeight.bold,
-                    fontSize: 18,
+                    fontSize: 16,
                   ),
                 ),
               ],
@@ -939,21 +832,13 @@ class _CartScreenState extends State<CartScreen> {
                   HapticFeedback.mediumImpact();
                   _showPrintDialog();
                 },
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(12),
                 child: Container(
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 13),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                    ),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
-                        blurRadius: 15,
-                        offset: const Offset(0, 5),
-                      ),
-                    ],
+                    color: _surfaceAlt,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: _border),
                   ),
                   child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -965,7 +850,7 @@ class _CartScreenState extends State<CartScreen> {
                         style: TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                          fontSize: 14,
                         ),
                       ),
                     ],
@@ -1032,8 +917,9 @@ class _CartScreenState extends State<CartScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.1),
+                            color: _surfaceAlt,
                             borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: _border),
                           ),
                           child: const Center(
                             child: Text(

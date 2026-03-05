@@ -37,11 +37,23 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: const Color(0xFF101216),
       body: Center(
         child: Container(
-          constraints: const BoxConstraints(maxWidth: 600),
-          padding: const EdgeInsets.all(40),
+          constraints: const BoxConstraints(maxWidth: 560),
+          padding: const EdgeInsets.all(28),
+          decoration: BoxDecoration(
+            color: const Color(0xFF171B21),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFF2A303A)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -51,14 +63,13 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
                 'MRO ENGINE',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.w900,
-                  color: Color(0xFFCC4444),
-                  letterSpacing: 4,
-                  shadows: [Shadow(color: Color(0x80CC4444), blurRadius: 20)],
+                  fontSize: 34,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFD9DEE7),
+                  letterSpacing: 2,
                 ),
               ),
-              const SizedBox(height: 60),
+              const SizedBox(height: 34),
 
               // Rotating loader icon
               AnimatedBuilder(
@@ -67,45 +78,45 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
                   return Transform.rotate(
                     angle: _rotationController.value * 2 * math.pi,
                     child: Container(
-                      width: 80,
-                      height: 80,
+                      width: 64,
+                      height: 64,
                       decoration: BoxDecoration(
                         border: Border.all(
-                          color: const Color(0xFFCC4444),
-                          width: 3,
+                          color: const Color(0xFFD9DEE7),
+                          width: 2,
                         ),
-                        borderRadius: BorderRadius.circular(40),
+                        borderRadius: BorderRadius.circular(32),
                       ),
                       child: CustomPaint(painter: _LoadingIconPainter()),
                     ),
                   );
                 },
               ),
-              const SizedBox(height: 40),
+              const SizedBox(height: 24),
 
               // Status text
               Text(
                 widget.status,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                  fontSize: 16,
-                  color: Color(0xFFAAAAAA),
+                  fontSize: 14,
+                  color: Color(0xFF9DA6B5),
                   fontWeight: FontWeight.w500,
-                  letterSpacing: 1,
+                  letterSpacing: 0.4,
                 ),
               ),
-              const SizedBox(height: 30),
+              const SizedBox(height: 18),
 
               // Progress bar container
               Container(
-                height: 40,
+                height: 34,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2A2A2A),
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(color: const Color(0xFF404040), width: 2),
+                  color: const Color(0xFF1D222B),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFF2A303A), width: 1),
                 ),
                 child: ClipRRect(
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(7),
                   child: Stack(
                     children: [
                       // Progress fill
@@ -114,19 +125,11 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
                         alignment: Alignment.centerLeft,
                         child: Container(
                           decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [
-                                const Color(0xFFCC4444),
-                                const Color(0xFFDD5555),
-                              ],
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                            ),
+                            color: const Color(0xFFD9DEE7),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0x40CC4444),
-                                blurRadius: 10,
-                                spreadRadius: 2,
+                                color: Colors.white.withValues(alpha: 0.2),
+                                blurRadius: 8,
                               ),
                             ],
                           ),
@@ -137,17 +140,17 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
                         child: Text(
                           '${(widget.progress * 100).toStringAsFixed(0)}%',
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 14,
                             fontWeight: FontWeight.bold,
                             color: widget.progress > 0.5
-                                ? const Color(0xFF1A1A1A)
-                                : const Color(0xFFAAAAAA),
-                            letterSpacing: 2,
+                                ? const Color(0xFF101216)
+                                : const Color(0xFF9DA6B5),
+                            letterSpacing: 0.8,
                             shadows: widget.progress > 0.5
                                 ? [
                                     const Shadow(
                                       color: Color(0x80000000),
-                                      blurRadius: 4,
+                                      blurRadius: 2,
                                     ),
                                   ]
                                 : null,
@@ -158,17 +161,17 @@ class _GmodLoadingScreenState extends State<GmodLoadingScreen>
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 14),
 
               // Additional info text
               Text(
                 'Please wait while we load the MRO database',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  fontSize: 12,
-                  color: const Color(0xFF666666),
+                  fontSize: 11,
+                  color: const Color(0xFF8A94A4),
                   fontWeight: FontWeight.w400,
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.2,
                 ),
               ),
             ],
@@ -183,7 +186,7 @@ class _LoadingIconPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
-      ..color = const Color(0xFFCC4444)
+      ..color = const Color(0xFFD9DEE7)
       ..style = PaintingStyle.fill;
 
     final center = Offset(size.width / 2, size.height / 2);

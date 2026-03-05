@@ -12,6 +12,11 @@ class PrintReceiptScreen extends StatefulWidget {
 }
 
 class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
+  static const Color _surface = Color(0xFF171B21);
+  static const Color _surfaceAlt = Color(0xFF1D222B);
+  static const Color _border = Color(0xFF2A303A);
+  static const Color _accent = Color(0xFFD9DEE7);
+
   final CartService _cartService = CartService();
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _workOrderController = TextEditingController();
@@ -30,15 +35,11 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
         backgroundColor: Colors.transparent,
         child: Container(
           constraints: const BoxConstraints(maxWidth: 400),
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            color: _surface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: _border),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -49,10 +50,9 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                      ),
-                      borderRadius: BorderRadius.circular(12),
+                      color: _surfaceAlt,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: _border),
                     ),
                     child: const Icon(
                       Icons.print,
@@ -64,7 +64,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                   const Text(
                     'Print Parts List',
                     style: TextStyle(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: Colors.white,
                     ),
@@ -111,12 +111,11 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                         },
                         borderRadius: BorderRadius.circular(12),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
                           decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                            ),
-                            borderRadius: BorderRadius.circular(12),
+                            color: _surfaceAlt,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: _border),
                           ),
                           child: const Row(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -168,24 +167,20 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
           decoration: InputDecoration(
             hintText: hint,
             hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.3)),
-            prefixIcon: Icon(icon, size: 18, color: const Color(0xFF00D9FF)),
+            prefixIcon: Icon(icon, size: 18, color: _accent),
             filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.05),
+            fillColor: _surfaceAlt,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
+              borderSide: const BorderSide(color: _border),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-              ),
+              borderSide: const BorderSide(color: _border),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: Color(0xFF00D9FF)),
+              borderSide: const BorderSide(color: _accent),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 12),
           ),
@@ -410,34 +405,15 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D0D),
-      body: Stack(
-        children: [
-          // Background
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color(0xFF0D0D0D),
-                  Color(0xFF1A1A2E),
-                  Color(0xFF16213E),
-                ],
-              ),
-            ),
-          ),
-          // Content
-          SafeArea(
-            child: Column(
-              children: [
-                _buildHeader(),
-                Expanded(child: _buildPreview()),
-                _buildPrintButton(),
-              ],
-            ),
-          ),
-        ],
+      backgroundColor: const Color(0xFF101216),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(child: _buildPreview()),
+            _buildPrintButton(),
+          ],
+        ),
       ),
     );
   }
@@ -454,18 +430,18 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.1),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: _border),
               ),
               child: const Icon(Icons.arrow_back, color: Colors.white),
             ),
           ),
           const SizedBox(width: 12),
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-              ),
-              borderRadius: BorderRadius.circular(16),
+              color: _surfaceAlt,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: _border),
             ),
             child: const Icon(
               Icons.receipt_long,
@@ -481,7 +457,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                 const Text(
                   'Parts List',
                   style: TextStyle(
-                    fontSize: 22,
+                    fontSize: 19,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                   ),
@@ -503,8 +479,9 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
       margin: const EdgeInsets.symmetric(horizontal: 16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
+        color: _surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -515,22 +492,23 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
               const Text(
                 'Preview',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: 12,
                   fontWeight: FontWeight.w500,
-                  color: Colors.black54,
+                  color: Colors.white70,
                 ),
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFF6C63FF).withValues(alpha: 0.1),
+                  color: _surfaceAlt,
                   borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: _border),
                 ),
                 child: Text(
                   '${_cartService.uniqueItemCount} items',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF6C63FF),
+                    color: _accent,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -542,7 +520,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
           Expanded(
             child: Container(
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: _border),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Column(
@@ -554,9 +532,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                       vertical: 8,
                     ),
                     decoration: const BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                      ),
+                      color: Color(0xFF1D222B),
                       borderRadius: BorderRadius.vertical(
                         top: Radius.circular(7),
                       ),
@@ -624,9 +600,11 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                   ),
                   // Data rows
                   Expanded(
-                    child: ListView.builder(
-                      itemCount: _cartService.items.length,
-                      itemBuilder: (context, index) {
+                    child: Scrollbar(
+                      thumbVisibility: true,
+                      child: ListView.builder(
+                        itemCount: _cartService.items.length,
+                        itemBuilder: (context, index) {
                         final item = _cartService.items[index];
                         return Container(
                           padding: const EdgeInsets.symmetric(
@@ -635,10 +613,10 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                           ),
                           decoration: BoxDecoration(
                             color: index.isEven
-                                ? Colors.grey.shade50
-                                : Colors.white,
+                                ? _surfaceAlt.withValues(alpha: 0.7)
+                                : _surface,
                             border: Border(
-                              bottom: BorderSide(color: Colors.grey.shade200),
+                              bottom: const BorderSide(color: _border),
                             ),
                           ),
                           child: Row(
@@ -649,7 +627,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                   '${index + 1}',
                                   style: const TextStyle(
                                     fontSize: 10,
-                                    color: Colors.black54,
+                                    color: Colors.white70,
                                   ),
                                 ),
                               ),
@@ -661,7 +639,10 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                       : (item.part.description.isNotEmpty
                                             ? item.part.description
                                             : '—'),
-                                  style: const TextStyle(fontSize: 10),
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.white,
+                                  ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -674,6 +655,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
+                                    color: Colors.white,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -687,7 +669,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                           vertical: 2,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: Colors.orange.shade50,
+                                          color: Colors.orange.withValues(alpha: 0.2),
                                           borderRadius: BorderRadius.circular(
                                             4,
                                           ),
@@ -696,7 +678,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                           item.part.location,
                                           style: TextStyle(
                                             fontSize: 9,
-                                            color: Colors.orange.shade800,
+                                            color: Colors.orange.shade200,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),
@@ -705,7 +687,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                         '—',
                                         style: TextStyle(
                                           fontSize: 10,
-                                          color: Colors.grey,
+                                          color: Colors.white54,
                                         ),
                                       ),
                               ),
@@ -718,13 +700,9 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                                       vertical: 2,
                                     ),
                                     decoration: BoxDecoration(
-                                      gradient: const LinearGradient(
-                                        colors: [
-                                          Color(0xFF6C63FF),
-                                          Color(0xFF00D9FF),
-                                        ],
-                                      ),
+                                      color: _surfaceAlt,
                                       borderRadius: BorderRadius.circular(4),
+                                      border: Border.all(color: _border),
                                     ),
                                     child: Text(
                                       '${item.quantity}',
@@ -741,6 +719,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
                           ),
                         );
                       },
+                      ),
                     ),
                   ),
                 ],
@@ -752,21 +731,23 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.grey.shade100,
+              color: _surfaceAlt,
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _border),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   '${_cartService.uniqueItemCount} unique items',
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  style: const TextStyle(fontSize: 12, color: Colors.white70),
                 ),
                 Text(
                   'Total: ${_cartService.itemCount} pcs',
                   style: const TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 12,
+                    color: Colors.white,
                   ),
                 ),
               ],
@@ -790,17 +771,9 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(vertical: 16),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF6C63FF), Color(0xFF00D9FF)],
-                ),
+                color: _surfaceAlt,
                 borderRadius: BorderRadius.circular(16),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF6C63FF).withValues(alpha: 0.4),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
+                border: Border.all(color: _border),
               ),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
