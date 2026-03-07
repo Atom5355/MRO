@@ -1,9 +1,9 @@
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../services/list_service.dart';
 import '../services/auth_service.dart';
+import '../services/browser_print_service.dart';
 
 class ListsScreen extends StatefulWidget {
   const ListsScreen({super.key});
@@ -816,11 +816,11 @@ class _ListsScreenState extends State<ListsScreen>
           const SizedBox(height: 16),
           _dialogActions(ctx, confirmLabel: 'Rename', onConfirm: () async {
             final name = _newListController.text.trim();
+            Navigator.pop(ctx);
             if (name.isNotEmpty) {
               await _listService.renameList(list.id, name);
               _showSnack('List renamed to "$name"');
             }
-            Navigator.pop(ctx);
           }),
         ]),
       ),
@@ -1311,9 +1311,7 @@ ${_buildPrintRows(list)}
 </html>
 ''';
 
-    final blob = html.Blob([htmlContent], 'text/html');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.window.open(url, '_blank');
+    openPrintWindow(htmlContent);
   }
 
   String _buildPrintRows(PartsList list) {

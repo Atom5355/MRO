@@ -1,8 +1,8 @@
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../services/cart_service.dart';
+import '../services/browser_print_service.dart';
 
 class PrintReceiptScreen extends StatefulWidget {
   const PrintReceiptScreen({super.key});
@@ -357,10 +357,7 @@ class _PrintReceiptScreenState extends State<PrintReceiptScreen> {
 </html>
 ''';
 
-    // Open in new window for printing
-    final blob = html.Blob([htmlContent], 'text/html');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.window.open(url, '_blank');
+    openPrintWindow(htmlContent);
   }
 
   String _buildTableRows() {

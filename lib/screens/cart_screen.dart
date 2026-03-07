@@ -1,8 +1,8 @@
-import 'dart:html' as html;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../services/cart_service.dart';
+import '../services/browser_print_service.dart';
 
 class CartScreen extends StatefulWidget {
   const CartScreen({super.key});
@@ -342,9 +342,7 @@ class _CartScreenState extends State<CartScreen> {
 </html>
 ''';
 
-    final blob = html.Blob([htmlContent], 'text/html');
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.window.open(url, '_blank');
+    openPrintWindow(htmlContent);
   }
 
   String _buildTableRows() {
