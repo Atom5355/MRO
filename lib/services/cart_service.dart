@@ -9,9 +9,7 @@ class CartItem {
   CartItem({required this.part, this.quantity = 1});
 
   /// Get a unique identifier for the cart item
-  String get id => part.legacyCode.isNotEmpty
-      ? part.legacyCode
-      : '${part.itemName}_${part.manufacturerPartNumber}';
+  String get id => part.partId;
 
   /// Calculate line total
   double get lineTotal => part.unitCost * quantity;
@@ -114,8 +112,6 @@ class CartService extends ChangeNotifier {
 
   /// Get unique ID for a part
   String _getPartId(MroPart part) {
-    return part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
+    return part.partId;
   }
 }

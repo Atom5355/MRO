@@ -58,11 +58,8 @@ class ListItem {
       );
 
   factory ListItem.fromPart(MroPart part) {
-    final id = part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
     return ListItem(
-      partId: id,
+      partId: part.partId,
       itemName: part.itemName,
       legacyCode: part.legacyCode,
       description: part.description,
@@ -95,15 +92,13 @@ class PartsList {
         updatedAt = updatedAt ?? DateTime.now(),
         items = items ?? [];
 
-  int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
+  int get totalQuantity => items.fold(0, (total, item) => total + item.quantity);
   int get uniqueItemCount => items.length;
-  double get totalCost => items.fold(0.0, (sum, i) => sum + i.lineTotal);
+  double get totalCost =>
+      items.fold(0.0, (total, item) => total + item.lineTotal);
 
   bool containsPart(MroPart part) {
-    final id = part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
-    return items.any((i) => i.partId == id);
+    return items.any((item) => part.partIds.contains(item.partId));
   }
 
   Map<String, dynamic> toMap() => {
@@ -255,11 +250,11 @@ class ListService extends ChangeNotifier {
     }
 
     final list = _lists[idx];
-    final partId = part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
+    final partId = part.partId;
 
-    final existingIdx = list.items.indexWhere((i) => i.partId == partId);
+    final existingIdx = list.items.indexWhere(
+      (item) => part.partIds.contains(item.partId) || item.partId == partId,
+    );
     if (existingIdx >= 0) {
       list.items[existingIdx].quantity += quantity;
     } else {
@@ -328,10 +323,9 @@ class ListService extends ChangeNotifier {
   int getQuantityInActiveList(MroPart part) {
     final list = activeList;
     if (list == null) return 0;
-    final partId = part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
-    final item = list.items.where((i) => i.partId == partId).firstOrNull;
+    final item = list.items
+        .where((listItem) => part.partIds.contains(listItem.partId))
+        .firstOrNull;
     return item?.quantity ?? 0;
   }
 
@@ -339,10 +333,9 @@ class ListService extends ChangeNotifier {
   int getQuantityInList(String listId, MroPart part) {
     final idx = _lists.indexWhere((l) => l.id == listId);
     if (idx < 0) return 0;
-    final partId = part.legacyCode.isNotEmpty
-        ? part.legacyCode
-        : '${part.itemName}_${part.manufacturerPartNumber}';
-    final item = _lists[idx].items.where((i) => i.partId == partId).firstOrNull;
+    final item = _lists[idx].items
+      .where((listItem) => part.partIds.contains(listItem.partId))
+      .firstOrNull;
     return item?.quantity ?? 0;
   }
 

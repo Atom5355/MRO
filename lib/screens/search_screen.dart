@@ -181,6 +181,24 @@ class _SearchScreenState extends State<SearchScreen>
     }
   }
 
+  Future<void> _openListsAfterAuthentication() async {
+    if (!mounted) {
+      return;
+    }
+
+    Navigator.pop(context);
+    await _listService.loadLists();
+
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const ListsScreen()),
+    );
+  }
+
   // ── Filter logic ──────────────────────────────────────────────────────
 
   void _applyFilters() {
@@ -334,6 +352,7 @@ class _SearchScreenState extends State<SearchScreen>
               .map(
                   (p) => SearchResult(part: p, score: 1.0, matchReasons: []))
               .toList();
+          _aiInterpretation = null;
         });
       } else if (_useAI && _aiSearchService.isAvailable) {
         final result =
@@ -346,15 +365,27 @@ class _SearchScreenState extends State<SearchScreen>
           _tokenUsage = result.tokenUsage;
         });
       } else {
+        final localResults = _searchService.search(_dataService.parts, query);
         setState(() {
-          _searchResults = _searchService.search(_dataService.parts, query);
+          _searchResults = localResults;
+          _aiInterpretation = _searchService.describeQuery(
+            query,
+            resultCount: localResults.length,
+          );
         });
       }
       _applyFilters();
       _playSound('success');
     } catch (e) {
+      final fallbackResults = _searchService.search(_dataService.parts, query);
       setState(() {
-        _searchResults = _searchService.search(_dataService.parts, query);
+        _searchResults = fallbackResults;
+        _aiInterpretation = query.isEmpty
+            ? null
+            : _searchService.describeQuery(
+                query,
+                resultCount: fallbackResults.length,
+              );
       });
       _applyFilters();
     } finally {
@@ -375,7 +406,7 @@ class _SearchScreenState extends State<SearchScreen>
           Column(
             children: [
               _buildTopNavBar(),
-              if (_aiInterpretation != null && _useAI) _buildAIBanner(),
+              if (_aiInterpretation != null) _buildAIBanner(),
               if (_tokenUsage != null && _useAI) _buildTokenRow(),
               Expanded(child: _buildBody()),
             ],
@@ -412,14 +443,14 @@ class _SearchScreenState extends State<SearchScreen>
                 const SizedBox(width: 8),
                 const Text('MRO',
                     style: TextStyle(
-                        fontSize: 14,
+                    fontSize: 21,
                         fontWeight: FontWeight.w800,
                         color: _text,
                         letterSpacing: 2)),
                 const SizedBox(width: 3),
                 Text('ENGINE',
                     style: TextStyle(
-                        fontSize: 14,
+                    fontSize: 21,
                         fontWeight: FontWeight.w300,
                         color: _textDim,
                         letterSpacing: 2)),
@@ -495,12 +526,9 @@ class _SearchScreenState extends State<SearchScreen>
                     _playSound('tap');
                     if (!_authService.isLoggedIn) {
                       Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => AuthScreen(onAuthenticated: () {
-                          Navigator.pop(context);
-                          _listService.loadLists().then((_) {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
-                          });
-                        }),
+                        builder: (_) => AuthScreen(
+                          onAuthenticated: _openListsAfterAuthentication,
+                        ),
                       ));
                     } else {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
@@ -622,7 +650,7 @@ class _SearchScreenState extends State<SearchScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          const Icon(Icons.psychology, size: 12, color: _accent),
+          Icon(_useAI ? Icons.psychology : Icons.tune, size: 12, color: _accent),
           const SizedBox(width: 6),
           Expanded(
               child: Text(_aiInterpretation!,
@@ -642,14 +670,14 @@ class _SearchScreenState extends State<SearchScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text('IN ${_tokenUsage!.inputTokens.toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 8, color: _textDim)),
+            style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('OUT ${_tokenUsage!.outputTokens.toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 8, color: _textDim)),
+            style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('\$${_tokenUsage!.cost.toStringAsFixed(4)}',
               style: const TextStyle(
-                  fontSize: 8,
+              fontSize: 15,
                   color: _accent,
                   fontWeight: FontWeight.w600)),
         ],
@@ -1118,10 +1146,12 @@ class _SearchScreenState extends State<SearchScreen>
 
   List<String> _availableWParts() {
     var r = List<SearchResult>.from(_searchResults);
-    if (_selectedManufacturers.isNotEmpty)
+    if (_selectedManufacturers.isNotEmpty) {
       r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
-    if (_selectedLegacyCodes.isNotEmpty)
+    }
+    if (_selectedLegacyCodes.isNotEmpty) {
       r = r.where((x) => _selectedLegacyCodes.contains(x.part.legacyCode)).toList();
+    }
     for (final e in _activeFilters.entries) {
       if (e.value.isEmpty) continue;
       r = r.where((x) {
@@ -1150,8 +1180,9 @@ class _SearchScreenState extends State<SearchScreen>
 
   List<String> _availableLegacyCodes() {
     var r = List<SearchResult>.from(_searchResults);
-    if (_selectedManufacturers.isNotEmpty)
+    if (_selectedManufacturers.isNotEmpty) {
       r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
+    }
     for (final e in _activeFilters.entries) {
       if (e.value.isEmpty) continue;
       r = r.where((x) {

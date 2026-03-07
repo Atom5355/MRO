@@ -90,126 +90,10 @@ class AISearchService {
 
   /// Pre-filter parts using basic keyword matching to get candidates
   List<MroPart> _preFilterCandidates(List<MroPart> parts, String query) {
-    final queryLower = query.toLowerCase();
-    final queryTerms = queryLower
-        .split(RegExp(r'[\s,]+'))
-        .where((t) => t.length > 1)
-        .where((t) => !_stopWords.contains(t))
+    return _localSearch
+        .searchCandidates(parts, query, minimumScore: 8, limit: 250)
+        .map((result) => result.part)
         .toList();
-
-    if (queryTerms.isEmpty) return [];
-
-    // Score each part by how many query terms it contains
-    final scored = <MapEntry<MroPart, int>>[];
-
-    for (final part in parts) {
-      final searchText =
-          '${part.itemName} ${part.description} ${part.manufacturer} ${part.manufacturerPartNumber}'
-              .toLowerCase();
-
-      int matches = 0;
-      for (final term in queryTerms) {
-        // Check all plural/singular variations of the search term
-        final variations = _getPluralVariations(term);
-        for (final variation in variations) {
-          if (searchText.contains(variation)) {
-            matches++;
-            break; // Found a match for this term, move to next
-          }
-        }
-      }
-
-      // Also check for common part type aliases
-      if (_containsPartType(searchText, queryTerms)) {
-        matches += 2;
-      }
-
-      if (matches > 0) {
-        scored.add(MapEntry(part, matches));
-      }
-    }
-
-    // Sort by match count descending
-    scored.sort((a, b) => b.value.compareTo(a.value));
-
-    // Return all candidates
-    return scored.map((e) => e.key).toList();
-  }
-
-  bool _containsPartType(String text, List<String> queryTerms) {
-    final partTypes = {
-      'motor': ['motor', 'mtr', 'gearmotor'],
-      'bearing': ['bearing', 'brg'],
-      'belt': ['belt', 'v-belt', 'timing belt'],
-      'chain': ['chain', 'roller chain'],
-      'sprocket': ['sprocket', 'gear'],
-      'pump': ['pump'],
-      'valve': ['valve'],
-      'coupling': ['coupling', 'coupler'],
-    };
-
-    for (final term in queryTerms) {
-      if (partTypes.containsKey(term)) {
-        for (final alias in partTypes[term]!) {
-          if (text.contains(alias)) return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  static const _stopWords = {
-    'i',
-    'a',
-    'an',
-    'the',
-    'need',
-    'want',
-    'looking',
-    'for',
-    'with',
-    'and',
-    'or',
-    'inch',
-    'in',
-  };
-
-  /// Normalize a word to handle singular/plural forms
-  /// Returns a list of variations to search for
-  static List<String> _getPluralVariations(String word) {
-    final variations = <String>{word};
-    final lower = word.toLowerCase();
-
-    // If ends with 's', try removing it (plural -> singular)
-    if (lower.endsWith('ies')) {
-      // batteries -> battery, assemblies -> assembly
-      variations.add('${lower.substring(0, lower.length - 3)}y');
-    } else if (lower.endsWith('es')) {
-      // boxes -> box, switches -> switch, bushes -> bush
-      variations.add(lower.substring(0, lower.length - 2));
-      variations.add(lower.substring(0, lower.length - 1)); // cases -> case
-    } else if (lower.endsWith('s') && lower.length > 2) {
-      // motors -> motor, aprons -> apron
-      variations.add(lower.substring(0, lower.length - 1));
-    }
-
-    // If doesn't end with 's', try adding it (singular -> plural)
-    if (!lower.endsWith('s')) {
-      if (lower.endsWith('y')) {
-        // battery -> batteries
-        variations.add('${lower.substring(0, lower.length - 1)}ies');
-      } else if (lower.endsWith('x') ||
-          lower.endsWith('ch') ||
-          lower.endsWith('sh')) {
-        // box -> boxes, switch -> switches
-        variations.add('${lower}es');
-      } else {
-        // motor -> motors, apron -> aprons
-        variations.add('${lower}s');
-      }
-    }
-
-    return variations.toList();
   }
 
   /// Let Gemini rank and score the candidate parts
@@ -441,12 +325,12 @@ class TokenUsage {
     required this.cost,
   });
 
-  /// Calculate estimated cost based on configured Gemini pricing assumptions
-  /// Input: $2.00 per 1M tokens (for prompts <= 200k)
-  /// Output: $12.00 per 1M tokens (for prompts <= 200k)
+  /// Calculate estimated cost based on configured AI pricing assumptions.
+  /// Input: $0.25 per 1M tokens.
+  /// Output: $1.50 per 1M tokens.
   factory TokenUsage.fromCounts(int inputTokens, int outputTokens) {
-    final inputCost = (inputTokens / 1000000) * 2.0;
-    final outputCost = (outputTokens / 1000000) * 12.0;
+    final inputCost = (inputTokens / 1000000) * 0.25;
+    final outputCost = (outputTokens / 1000000) * 1.5;
     final totalCost = inputCost + outputCost;
 
     return TokenUsage(
