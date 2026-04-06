@@ -1,10 +1,15 @@
+import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
-import 'package:http/http.dart' as http;
+import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
 
 /// Service for loading and searching MRO parts data from Excel file
 class MroDataService {
+  static const String _mroConfigAssetPath = 'web/mro-config.json';
+  static const String _defaultExcelFileName = 'MRO.xlsx';
+
   // Singleton pattern
   static final MroDataService _instance = MroDataService._internal();
   factory MroDataService() => _instance;
@@ -25,17 +30,14 @@ class MroDataService {
     if (_isLoaded) return;
 
     try {
-      onProgress?.call(0.0, 'Fetching Excel file...');
+      onProgress?.call(0.0, 'Resolving workbook...');
 
-      // Fetch the Excel file from web folder
-      final response = await http.get(Uri.parse('MRO%2012.18.25.xlsx'));
+      final excelFileName = await _resolveExcelFileName();
 
-      if (response.statusCode != 200) {
-        throw Exception('Failed to load Excel file: ${response.statusCode}');
-      }
+      onProgress?.call(0.1, 'Loading workbook...');
+      final bytes = await _loadExcelBytes(excelFileName);
 
       onProgress?.call(0.2, 'Parsing Excel data...');
-      final bytes = response.bodyBytes.toList();
 
       // Use JavaScript SheetJS to parse the Excel file
       final data = await _parseExcelWithSheetJS(bytes);
@@ -140,6 +142,38 @@ class MroDataService {
     return _parts.where((part) => part.matchesSearch(query)).toList();
   }
 
+  Future<String> _resolveExcelFileName() async {
+    try {
+      final rawConfig = await _loadWorkbookConfig();
+      final decoded = jsonDecode(rawConfig);
+
+      if (decoded is Map<String, dynamic>) {
+        final configuredFileName =
+            (decoded['excelFile'] as String? ?? '').trim();
+        if (configuredFileName.isNotEmpty) {
+          return configuredFileName;
+        }
+      }
+    } catch (_) {
+      // Fall back to the current default workbook when the config is absent.
+    }
+
+    return _defaultExcelFileName;
+  }
+
+  Future<String> _loadWorkbookConfig() async {
+    return rootBundle.loadString(_mroConfigAssetPath, cache: false);
+  }
+
+  Future<List<int>> _loadExcelBytes(String excelFileName) async {
+    try {
+      final data = await rootBundle.load('web/$excelFileName');
+      return data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes);
+    } catch (e) {
+      throw Exception('Unable to load workbook asset "$excelFileName": $e');
+    }
+  }
+
   /// Get value from row with case-insensitive column lookup
   String _getString(Map<String, dynamic> row, String column) {
     // Try exact match first
@@ -220,7 +254,7 @@ class MroDataService {
       }
 
       // Create Uint8Array from bytes
-      final jsBytes = bytes.jsify() as JSArray;
+      final jsBytes = bytes.toList(growable: false).jsify() as JSArray;
       final uint8Array = _createUint8Array(jsBytes);
 
       // Create options object

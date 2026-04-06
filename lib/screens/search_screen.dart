@@ -26,6 +26,15 @@ class _SearchScreenState extends State<SearchScreen>
   static const Color _border = Color(0xFF222222);
   static const Color _text = Color(0xFFEAEAEA);
   static const Color _textDim = Color(0xFF777777);
+  static const double _filterUiScale = 1.5;
+
+  double _filterScaled(double value) => value * _filterUiScale;
+
+  double _filterDrawerWidth(BuildContext context) {
+    final targetWidth = _filterScaled(300);
+    final maxWidth = MediaQuery.sizeOf(context).width * 0.92;
+    return targetWidth < maxWidth ? targetWidth : maxWidth;
+  }
 
   // ── Services ──────────────────────────────────────────────────────────
   final MroDataService _dataService = MroDataService();
@@ -111,8 +120,7 @@ class _SearchScreenState extends State<SearchScreen>
     if (mounted) setState(() {});
   }
 
-  void _showNotification(String message,
-      {IconData icon = Icons.check_circle}) {
+  void _showNotification(String message, {IconData icon = Icons.check_circle}) {
     setState(() {
       _notificationMessage = message;
       _notificationIcon = icon;
@@ -214,10 +222,9 @@ class _SearchScreenState extends State<SearchScreen>
           .toList();
     }
     if (_selectedWPartNumbers.isNotEmpty) {
-      results = results.where((r) {
-        final w = _extractWPartNumbers(r.part);
-        return w.any(_selectedWPartNumbers.contains);
-      }).toList();
+      results = results
+          .where((r) => _selectedWPartNumbers.contains(r.part.wPartNumber))
+          .toList();
     }
     for (final entry in _activeFilters.entries) {
       final field = entry.key;
@@ -232,13 +239,8 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   Set<String> _extractWPartNumbers(MroPart part) {
-    return <String>{
-      part.itemName.trim(),
-      part.manufacturerPartNumber.trim(),
-      part.supplierPartNumber.trim(),
-    }
-        .where((v) => v.isNotEmpty && v.toLowerCase().startsWith('w'))
-        .toSet();
+    final wPartNumber = part.wPartNumber;
+    return wPartNumber.isEmpty ? const <String>{} : {wPartNumber};
   }
 
   String _getFieldValue(MroPart part, String field) {
@@ -349,14 +351,12 @@ class _SearchScreenState extends State<SearchScreen>
       if (query.isEmpty) {
         setState(() {
           _searchResults = _dataService.parts
-              .map(
-                  (p) => SearchResult(part: p, score: 1.0, matchReasons: []))
+              .map((p) => SearchResult(part: p, score: 1.0, matchReasons: []))
               .toList();
           _aiInterpretation = null;
         });
       } else if (_useAI && _aiSearchService.isAvailable) {
-        final result =
-            await _aiSearchService.search(_dataService.parts, query);
+        final result = await _aiSearchService.search(_dataService.parts, query);
         setState(() {
           _searchResults = result.results;
           if (result.aiInterpretation != null) {
@@ -443,14 +443,14 @@ class _SearchScreenState extends State<SearchScreen>
                 const SizedBox(width: 8),
                 const Text('MRO',
                     style: TextStyle(
-                    fontSize: 21,
+                        fontSize: 21,
                         fontWeight: FontWeight.w800,
                         color: _text,
                         letterSpacing: 2)),
                 const SizedBox(width: 3),
                 Text('ENGINE',
                     style: TextStyle(
-                    fontSize: 21,
+                        fontSize: 21,
                         fontWeight: FontWeight.w300,
                         color: _textDim,
                         letterSpacing: 2)),
@@ -525,25 +525,34 @@ class _SearchScreenState extends State<SearchScreen>
                   onTap: () {
                     _playSound('tap');
                     if (!_authService.isLoggedIn) {
-                      Navigator.push(context, MaterialPageRoute(
-                        builder: (_) => AuthScreen(
-                          onAuthenticated: _openListsAfterAuthentication,
-                        ),
-                      ));
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => AuthScreen(
+                              onAuthenticated: _openListsAfterAuthentication,
+                            ),
+                          ));
                     } else {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (_) => const ListsScreen()));
                     }
                   },
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(Icons.list_alt,
                         size: 13,
-                        color: _listService.activeList == null || (_listService.activeList?.items.isEmpty ?? true)
-                            ? _textDim : _accent),
+                        color: _listService.activeList == null ||
+                                (_listService.activeList?.items.isEmpty ?? true)
+                            ? _textDim
+                            : _accent),
                     const SizedBox(width: 3),
                     Text('${_listService.activeList?.uniqueItemCount ?? 0}',
                         style: TextStyle(
                             fontSize: 9,
-                            color: _listService.activeList == null || (_listService.activeList?.items.isEmpty ?? true)
+                            color: _listService.activeList == null ||
+                                    (_listService.activeList?.items.isEmpty ??
+                                        true)
                                 ? _textDim
                                 : _accent,
                             fontWeight: FontWeight.w700)),
@@ -567,8 +576,8 @@ class _SearchScreenState extends State<SearchScreen>
                         hintText: _useAI
                             ? 'Ask anything... "2hp motor for conveyor"'
                             : 'Search part name, MPN, manufacturer...',
-                        hintStyle:
-                            const TextStyle(color: Color(0xFF444444), fontSize: 11),
+                        hintStyle: const TextStyle(
+                            color: Color(0xFF444444), fontSize: 11),
                         prefixIcon: _isSearching
                             ? const Padding(
                                 padding: EdgeInsets.all(9),
@@ -578,12 +587,10 @@ class _SearchScreenState extends State<SearchScreen>
                                     child: CircularProgressIndicator(
                                         strokeWidth: 1.5, color: _accent)),
                               )
-                            : Icon(
-                                _useAI ? Icons.auto_awesome : Icons.search,
+                            : Icon(_useAI ? Icons.auto_awesome : Icons.search,
                                 size: 14,
-                                color: _useAI
-                                    ? _accent
-                                    : const Color(0xFF444444)),
+                                color:
+                                    _useAI ? _accent : const Color(0xFF444444)),
                         suffixIcon: _searchController.text.isNotEmpty
                             ? IconButton(
                                 icon: const Icon(Icons.close,
@@ -650,7 +657,8 @@ class _SearchScreenState extends State<SearchScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          Icon(_useAI ? Icons.psychology : Icons.tune, size: 12, color: _accent),
+          Icon(_useAI ? Icons.psychology : Icons.tune,
+              size: 12, color: _accent),
           const SizedBox(width: 6),
           Expanded(
               child: Text(_aiInterpretation!,
@@ -670,16 +678,14 @@ class _SearchScreenState extends State<SearchScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text('IN ${_tokenUsage!.inputTokens.toStringAsFixed(0)}',
-            style: const TextStyle(fontSize: 15, color: _textDim)),
+              style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('OUT ${_tokenUsage!.outputTokens.toStringAsFixed(0)}',
-            style: const TextStyle(fontSize: 15, color: _textDim)),
+              style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('\$${_tokenUsage!.cost.toStringAsFixed(4)}',
               style: const TextStyle(
-              fontSize: 15,
-                  color: _accent,
-                  fontWeight: FontWeight.w600)),
+                  fontSize: 15, color: _accent, fontWeight: FontWeight.w600)),
         ],
       ),
     );
@@ -713,8 +719,7 @@ class _SearchScreenState extends State<SearchScreen>
         ]),
       );
     }
-    if (_filteredResults.isEmpty &&
-        (_hasSearched || _totalActiveFilters > 0)) {
+    if (_filteredResults.isEmpty && (_hasSearched || _totalActiveFilters > 0)) {
       return Center(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.search_off, size: 36, color: _textDim),
@@ -755,8 +760,7 @@ class _SearchScreenState extends State<SearchScreen>
             if (_hasSearched) ...[
               const SizedBox(width: 6),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 color: _accentDim.withValues(alpha: 0.2),
                 child: const Text('RANKED',
                     style: TextStyle(
@@ -810,8 +814,9 @@ class _SearchScreenState extends State<SearchScreen>
       tween: Tween(begin: 0, end: 1),
       duration: Duration(milliseconds: 150 + (index * 20).clamp(0, 200)),
       curve: Curves.easeOut,
-      builder: (context, v, child) =>
-          Opacity(opacity: v, child: Transform.scale(scale: 0.96 + 0.04 * v, child: child)),
+      builder: (context, v, child) => Opacity(
+          opacity: v,
+          child: Transform.scale(scale: 0.96 + 0.04 * v, child: child)),
       child: _HoverCard(
         onTap: () {
           _playSound('tap');
@@ -850,15 +855,14 @@ class _SearchScreenState extends State<SearchScreen>
                           height: 1.3),
                     ),
                     const SizedBox(height: 3),
-                    if (part.legacyCode.isNotEmpty &&
-                        part.itemName.isNotEmpty)
+                    if (part.legacyCode.isNotEmpty && part.itemName.isNotEmpty)
                       Text('# ${part.legacyCode}',
                           style: const TextStyle(
                               fontSize: 13,
                               color: _textDim,
                               fontWeight: FontWeight.w500)),
                     // Description
-                    if (part.description.isNotEmpty) ...[  
+                    if (part.description.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(part.description,
                           maxLines: 3,
@@ -869,19 +873,25 @@ class _SearchScreenState extends State<SearchScreen>
                               height: 1.35)),
                     ],
                     // AI match reasons
-                    if (showRelevance && matchReasons.isNotEmpty) ...[  
+                    if (showRelevance && matchReasons.isNotEmpty) ...[
                       const SizedBox(height: 5),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
                         decoration: BoxDecoration(
-                          border: Border(left: BorderSide(color: _accent, width: 2)),
+                          border: Border(
+                              left: BorderSide(color: _accent, width: 2)),
                           color: _accent.withValues(alpha: 0.06),
                         ),
                         child: Text(
                           matchReasons.take(3).join(' · '),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 10, color: _accent, fontWeight: FontWeight.w500, height: 1.3),
+                          style: const TextStyle(
+                              fontSize: 10,
+                              color: _accent,
+                              fontWeight: FontWeight.w500,
+                              height: 1.3),
                         ),
                       ),
                     ],
@@ -933,7 +943,8 @@ class _SearchScreenState extends State<SearchScreen>
               onTap: () {
                 _playSound('tap');
                 if (!_authService.isLoggedIn) {
-                  _showNotification('Sign in to add parts to lists', icon: Icons.login);
+                  _showNotification('Sign in to add parts to lists',
+                      icon: Icons.login);
                   return;
                 }
                 _showAddToListModal(part);
@@ -945,8 +956,7 @@ class _SearchScreenState extends State<SearchScreen>
                 child: const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.playlist_add,
-                          size: 14, color: _textDim),
+                      Icon(Icons.playlist_add, size: 14, color: _textDim),
                       SizedBox(width: 4),
                       Text('ADD TO LIST',
                           style: TextStyle(
@@ -962,8 +972,6 @@ class _SearchScreenState extends State<SearchScreen>
       ),
     );
   }
-
-
 
   Widget _chip(String text) {
     return Row(mainAxisSize: MainAxisSize.min, children: [
@@ -989,6 +997,8 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Filter drawer ─────────────────────────────────────────────────────
 
   Widget _buildFilterOverlay() {
+    final drawerWidth = _filterDrawerWidth(context);
+
     return Stack(children: [
       GestureDetector(
         onTap: () => setState(() => _filterDrawerOpen = false),
@@ -999,23 +1009,28 @@ class _SearchScreenState extends State<SearchScreen>
         top: 0,
         bottom: 0,
         child: SizedBox(
-          width: 300,
+          width: drawerWidth,
           child: Material(
             color: _surfaceRaised,
             child: Column(children: [
               // Header
               Container(
-                padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+                padding: EdgeInsets.fromLTRB(
+                  _filterScaled(18),
+                  _filterScaled(14),
+                  _filterScaled(8),
+                  _filterScaled(14),
+                ),
                 decoration: const BoxDecoration(
                     border: Border(bottom: BorderSide(color: _border))),
                 child: SafeArea(
                   bottom: false,
                   child: Row(children: [
-                    const Icon(Icons.tune, size: 14, color: _accent),
-                    const SizedBox(width: 6),
-                    const Text('FILTERS',
+                    Icon(Icons.tune, size: _filterScaled(16), color: _accent),
+                    SizedBox(width: _filterScaled(8)),
+                    Text('FILTERS',
                         style: TextStyle(
-                            fontSize: 11,
+                            fontSize: _filterScaled(11),
                             fontWeight: FontWeight.w700,
                             color: _text,
                             letterSpacing: 2)),
@@ -1023,36 +1038,48 @@ class _SearchScreenState extends State<SearchScreen>
                     if (_totalActiveFilters > 0)
                       TextButton(
                         onPressed: _clearAllFilters,
-                        child: const Text('CLEAR',
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: _filterScaled(10),
+                            vertical: _filterScaled(6),
+                          ),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: Text('CLEAR',
                             style: TextStyle(
-                                fontSize: 8,
+                                fontSize: _filterScaled(9),
                                 color: _accent,
                                 fontWeight: FontWeight.w700)),
                       ),
                     IconButton(
                       onPressed: () =>
                           setState(() => _filterDrawerOpen = false),
-                      icon:
-                          const Icon(Icons.close, size: 16, color: _textDim),
+                      padding: EdgeInsets.all(_filterScaled(4)),
+                      constraints: const BoxConstraints(),
+                      icon: Icon(Icons.close,
+                          size: _filterScaled(18), color: _textDim),
                     ),
                   ]),
                 ),
               ),
               // Count
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                padding: EdgeInsets.symmetric(
+                  horizontal: _filterScaled(18),
+                  vertical: _filterScaled(8),
+                ),
                 color: _surface,
                 child: Row(children: [
                   Text('${_filteredResults.length}',
-                      style: const TextStyle(
-                          fontSize: 12,
+                      style: TextStyle(
+                          fontSize: _filterScaled(13),
                           fontWeight: FontWeight.w800,
                           color: _accent)),
-                  const SizedBox(width: 3),
+                  SizedBox(width: _filterScaled(5)),
                   Text('of ${_searchResults.length}',
-                      style:
-                          const TextStyle(fontSize: 9, color: _textDim)),
+                      style: TextStyle(
+                          fontSize: _filterScaled(10), color: _textDim)),
                 ]),
               ),
               // Sections
@@ -1060,7 +1087,7 @@ class _SearchScreenState extends State<SearchScreen>
                 child: Scrollbar(
                   thumbVisibility: true,
                   child: ListView(
-                    padding: const EdgeInsets.all(10),
+                    padding: EdgeInsets.all(_filterScaled(10)),
                     children: [
                       _multiSelect(
                         label: 'W Part Numbers',
@@ -1082,7 +1109,7 @@ class _SearchScreenState extends State<SearchScreen>
                           _applyFilters();
                         },
                       ),
-                      const SizedBox(height: 6),
+                      SizedBox(height: _filterScaled(7)),
                       _multiSelect(
                         label: 'Manufacturer',
                         icon: Icons.business,
@@ -1093,10 +1120,9 @@ class _SearchScreenState extends State<SearchScreen>
                             setState(() => _manufacturerSearchQuery = v),
                         getAvailable: _availableManufacturers,
                         onToggle: (v) {
-                          setState(() =>
-                              _selectedManufacturers.contains(v)
-                                  ? _selectedManufacturers.remove(v)
-                                  : _selectedManufacturers.add(v));
+                          setState(() => _selectedManufacturers.contains(v)
+                              ? _selectedManufacturers.remove(v)
+                              : _selectedManufacturers.add(v));
                           _applyFilters();
                         },
                         onClear: () {
@@ -1104,7 +1130,7 @@ class _SearchScreenState extends State<SearchScreen>
                           _applyFilters();
                         },
                       ),
-                      const SizedBox(height: 6),
+                      SizedBox(height: _filterScaled(7)),
                       _multiSelect(
                         label: 'Legacy Part #',
                         icon: Icons.history,
@@ -1115,10 +1141,9 @@ class _SearchScreenState extends State<SearchScreen>
                             setState(() => _legacyCodeSearchQuery = v),
                         getAvailable: _availableLegacyCodes,
                         onToggle: (v) {
-                          setState(() =>
-                              _selectedLegacyCodes.contains(v)
-                                  ? _selectedLegacyCodes.remove(v)
-                                  : _selectedLegacyCodes.add(v));
+                          setState(() => _selectedLegacyCodes.contains(v)
+                              ? _selectedLegacyCodes.remove(v)
+                              : _selectedLegacyCodes.add(v));
                           _applyFilters();
                         },
                         onClear: () {
@@ -1126,10 +1151,10 @@ class _SearchScreenState extends State<SearchScreen>
                           _applyFilters();
                         },
                       ),
-                      const SizedBox(height: 6),
+                      SizedBox(height: _filterScaled(7)),
                       for (final field in _activeFilters.keys) ...[
                         _textFilter(field),
-                        const SizedBox(height: 6),
+                        SizedBox(height: _filterScaled(7)),
                       ],
                     ],
                   ),
@@ -1147,10 +1172,14 @@ class _SearchScreenState extends State<SearchScreen>
   List<String> _availableWParts() {
     var r = List<SearchResult>.from(_searchResults);
     if (_selectedManufacturers.isNotEmpty) {
-      r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
+      r = r
+          .where((x) => _selectedManufacturers.contains(x.part.manufacturer))
+          .toList();
     }
     if (_selectedLegacyCodes.isNotEmpty) {
-      r = r.where((x) => _selectedLegacyCodes.contains(x.part.legacyCode)).toList();
+      r = r
+          .where((x) => _selectedLegacyCodes.contains(x.part.legacyCode))
+          .toList();
     }
     for (final e in _activeFilters.entries) {
       if (e.value.isEmpty) continue;
@@ -1159,9 +1188,13 @@ class _SearchScreenState extends State<SearchScreen>
         return e.value.every((t) => v.contains(t.toLowerCase()));
       }).toList();
     }
-    final all = r.expand((x) => _extractWPartNumbers(x.part)).toSet().toList()..sort();
+    final all = r.expand((x) => _extractWPartNumbers(x.part)).toSet().toList()
+      ..sort();
     if (_wPartNumberSearchQuery.isEmpty) return all;
-    return all.where((w) => w.toLowerCase().contains(_wPartNumberSearchQuery.toLowerCase())).toList();
+    return all
+        .where((w) =>
+            w.toLowerCase().contains(_wPartNumberSearchQuery.toLowerCase()))
+        .toList();
   }
 
   List<String> _availableManufacturers() {
@@ -1173,15 +1206,25 @@ class _SearchScreenState extends State<SearchScreen>
         return e.value.every((t) => v.contains(t.toLowerCase()));
       }).toList();
     }
-    final all = r.map((x) => x.part.manufacturer).where((m) => m.isNotEmpty).toSet().toList()..sort();
+    final all = r
+        .map((x) => x.part.manufacturer)
+        .where((m) => m.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
     if (_manufacturerSearchQuery.isEmpty) return all;
-    return all.where((m) => m.toLowerCase().contains(_manufacturerSearchQuery.toLowerCase())).toList();
+    return all
+        .where((m) =>
+            m.toLowerCase().contains(_manufacturerSearchQuery.toLowerCase()))
+        .toList();
   }
 
   List<String> _availableLegacyCodes() {
     var r = List<SearchResult>.from(_searchResults);
     if (_selectedManufacturers.isNotEmpty) {
-      r = r.where((x) => _selectedManufacturers.contains(x.part.manufacturer)).toList();
+      r = r
+          .where((x) => _selectedManufacturers.contains(x.part.manufacturer))
+          .toList();
     }
     for (final e in _activeFilters.entries) {
       if (e.value.isEmpty) continue;
@@ -1190,9 +1233,17 @@ class _SearchScreenState extends State<SearchScreen>
         return e.value.every((t) => v.contains(t.toLowerCase()));
       }).toList();
     }
-    final all = r.map((x) => x.part.legacyCode).where((m) => m.isNotEmpty).toSet().toList()..sort();
+    final all = r
+        .map((x) => x.part.legacyCode)
+        .where((m) => m.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
     if (_legacyCodeSearchQuery.isEmpty) return all;
-    return all.where((m) => m.toLowerCase().contains(_legacyCodeSearchQuery.toLowerCase())).toList();
+    return all
+        .where((m) =>
+            m.toLowerCase().contains(_legacyCodeSearchQuery.toLowerCase()))
+        .toList();
   }
 
   // ── Reusable multi-select widget ──────────────────────────────────────
@@ -1220,61 +1271,73 @@ class _SearchScreenState extends State<SearchScreen>
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         // Header
         Container(
-          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          padding: EdgeInsets.fromLTRB(
+            _filterScaled(10),
+            _filterScaled(8),
+            _filterScaled(6),
+            _filterScaled(8),
+          ),
           decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: _border))),
           child: Row(children: [
             Icon(icon,
-                size: 10, color: active ? _accent : _textDim),
-            const SizedBox(width: 5),
+                size: _filterScaled(12), color: active ? _accent : _textDim),
+            SizedBox(width: _filterScaled(6)),
             Text(label.toUpperCase(),
                 style: TextStyle(
-                    fontSize: 8,
+                    fontSize: _filterScaled(9),
                     fontWeight: FontWeight.w700,
                     color: active ? _accent : _textDim,
                     letterSpacing: 1)),
             const Spacer(),
             if (active) ...[
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                padding: EdgeInsets.symmetric(
+                  horizontal: _filterScaled(5),
+                  vertical: _filterScaled(2),
+                ),
                 color: _accent,
                 child: Text('${selected.length}',
-                    style: const TextStyle(
-                        fontSize: 8,
+                    style: TextStyle(
+                        fontSize: _filterScaled(8),
                         color: Colors.white,
                         fontWeight: FontWeight.w700)),
               ),
-              const SizedBox(width: 3),
+              SizedBox(width: _filterScaled(4)),
               InkWell(
                 onTap: () {
                   _playSound('tap');
                   onClear();
                 },
-                child: const Padding(
-                    padding: EdgeInsets.all(3),
-                    child:
-                        Icon(Icons.close, size: 10, color: _textDim)),
+                child: Padding(
+                    padding: EdgeInsets.all(_filterScaled(3)),
+                    child: Icon(Icons.close,
+                        size: _filterScaled(10), color: _textDim)),
               ),
             ],
           ]),
         ),
         // Search
         Container(
-          height: 28,
-          margin: const EdgeInsets.all(5),
+          height: _filterScaled(30),
+          margin: EdgeInsets.all(_filterScaled(6)),
           color: _surfaceRaised,
           child: TextField(
             controller: controller,
-            style: const TextStyle(color: _text, fontSize: 10),
-            decoration: const InputDecoration(
+            style: TextStyle(color: _text, fontSize: _filterScaled(10)),
+            decoration: InputDecoration(
               hintText: 'Search...',
-              hintStyle: TextStyle(fontSize: 9, color: Color(0xFF444444)),
-              prefixIcon:
-                  Icon(Icons.search, size: 10, color: Color(0xFF444444)),
+              hintStyle: TextStyle(
+                  fontSize: _filterScaled(9), color: const Color(0xFF444444)),
+              prefixIcon: Icon(Icons.search,
+                  size: _filterScaled(12), color: const Color(0xFF444444)),
               isDense: true,
-              contentPadding:
-                  EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+              prefixIconConstraints: BoxConstraints(
+                minWidth: _filterScaled(24),
+                minHeight: _filterScaled(24),
+              ),
+              contentPadding: EdgeInsets.symmetric(
+                  horizontal: _filterScaled(8), vertical: _filterScaled(8)),
               border: InputBorder.none,
             ),
             onChanged: onSearchChanged,
@@ -1283,32 +1346,37 @@ class _SearchScreenState extends State<SearchScreen>
         // Tags
         if (active)
           Padding(
-            padding: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            padding: EdgeInsets.fromLTRB(
+              _filterScaled(6),
+              0,
+              _filterScaled(6),
+              _filterScaled(6),
+            ),
             child: Wrap(
-              spacing: 3,
-              runSpacing: 3,
+              spacing: _filterScaled(4),
+              runSpacing: _filterScaled(4),
               children: selected
                   .map((v) => Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: _filterScaled(6),
+                            vertical: _filterScaled(2)),
                         color: _accent,
-                        child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(v,
-                                  style: const TextStyle(
-                                      fontSize: 8,
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(width: 2),
-                              InkWell(
-                                  onTap: () {
-                                    _playSound('tap');
-                                    onToggle(v);
-                                  },
-                                  child: const Icon(Icons.close,
-                                      size: 8, color: Colors.white70)),
-                            ]),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text(v,
+                              style: TextStyle(
+                                  fontSize: _filterScaled(8),
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500)),
+                          SizedBox(width: _filterScaled(3)),
+                          InkWell(
+                              onTap: () {
+                                _playSound('tap');
+                                onToggle(v);
+                              },
+                              child: Icon(Icons.close,
+                                  size: _filterScaled(8),
+                                  color: Colors.white70)),
+                        ]),
                       ))
                   .toList(),
             ),
@@ -1316,8 +1384,13 @@ class _SearchScreenState extends State<SearchScreen>
         // List
         if (available.isNotEmpty)
           Container(
-            constraints: const BoxConstraints(maxHeight: 110),
-            margin: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            constraints: BoxConstraints(maxHeight: _filterScaled(140)),
+            margin: EdgeInsets.fromLTRB(
+              _filterScaled(6),
+              0,
+              _filterScaled(6),
+              _filterScaled(6),
+            ),
             child: Scrollbar(
               thumbVisibility: true,
               child: ListView.builder(
@@ -1332,8 +1405,9 @@ class _SearchScreenState extends State<SearchScreen>
                       onToggle(val);
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 4),
+                      padding: EdgeInsets.symmetric(
+                          horizontal: _filterScaled(8),
+                          vertical: _filterScaled(6)),
                       decoration: BoxDecoration(
                         color: sel
                             ? _accent.withValues(alpha: 0.08)
@@ -1344,27 +1418,25 @@ class _SearchScreenState extends State<SearchScreen>
                       ),
                       child: Row(children: [
                         Container(
-                          width: 12,
-                          height: 12,
+                          width: _filterScaled(14),
+                          height: _filterScaled(14),
                           decoration: BoxDecoration(
-                            color:
-                                sel ? _accent : Colors.transparent,
+                            color: sel ? _accent : Colors.transparent,
                             border: Border.all(
-                                color: sel
-                                    ? _accent
-                                    : const Color(0xFF444444)),
+                                color: sel ? _accent : const Color(0xFF444444)),
                           ),
                           child: sel
-                              ? const Icon(Icons.check,
-                                  size: 8, color: Colors.white)
+                              ? Icon(Icons.check,
+                                  size: _filterScaled(8), color: Colors.white)
                               : null,
                         ),
-                        const SizedBox(width: 5),
+                        SizedBox(width: _filterScaled(6)),
                         Expanded(
                             child: Text(val,
                                 style: TextStyle(
-                                    fontSize: 9,
+                                    fontSize: _filterScaled(10),
                                     color: sel ? _text : _textDim),
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis)),
                       ]),
                     ),
@@ -1375,10 +1447,15 @@ class _SearchScreenState extends State<SearchScreen>
           ),
         if (available.isEmpty && searchQuery.isNotEmpty)
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+            padding: EdgeInsets.fromLTRB(
+              _filterScaled(8),
+              0,
+              _filterScaled(8),
+              _filterScaled(8),
+            ),
             child: Text('No matches',
                 style: TextStyle(
-                    fontSize: 8,
+                    fontSize: _filterScaled(8),
                     color: _textDim.withValues(alpha: 0.5),
                     fontStyle: FontStyle.italic)),
           ),
@@ -1401,56 +1478,65 @@ class _SearchScreenState extends State<SearchScreen>
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(8, 6, 4, 6),
+          padding: EdgeInsets.fromLTRB(
+            _filterScaled(10),
+            _filterScaled(8),
+            _filterScaled(6),
+            _filterScaled(8),
+          ),
           decoration: const BoxDecoration(
               border: Border(bottom: BorderSide(color: _border))),
           child: Row(children: [
             Text(_getFieldDisplayName(field).toUpperCase(),
                 style: TextStyle(
-                    fontSize: 8,
+                    fontSize: _filterScaled(9),
                     fontWeight: FontWeight.w700,
                     color: active ? _accent : _textDim,
                     letterSpacing: 1)),
             const Spacer(),
             if (active) ...[
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                padding: EdgeInsets.symmetric(
+                  horizontal: _filterScaled(5),
+                  vertical: _filterScaled(2),
+                ),
                 color: _accent,
                 child: Text('${tags.length}',
-                    style: const TextStyle(
-                        fontSize: 8,
+                    style: TextStyle(
+                        fontSize: _filterScaled(8),
                         color: Colors.white,
                         fontWeight: FontWeight.w700)),
               ),
-              const SizedBox(width: 3),
+              SizedBox(width: _filterScaled(4)),
               InkWell(
                 onTap: () => _clearFieldFilters(field),
-                child: const Padding(
-                    padding: EdgeInsets.all(3),
-                    child:
-                        Icon(Icons.close, size: 10, color: _textDim)),
+                child: Padding(
+                    padding: EdgeInsets.all(_filterScaled(3)),
+                    child: Icon(Icons.close,
+                        size: _filterScaled(10), color: _textDim)),
               ),
             ],
           ]),
         ),
         Padding(
-          padding: const EdgeInsets.all(5),
+          padding: EdgeInsets.all(_filterScaled(6)),
           child: Row(children: [
             Expanded(
               child: SizedBox(
-                height: 26,
+                height: _filterScaled(30),
                 child: TextField(
                   controller: controller,
                   focusNode: _filterFocusNodes[field],
-                  style: const TextStyle(color: _text, fontSize: 10),
-                  decoration: const InputDecoration(
+                  style: TextStyle(color: _text, fontSize: _filterScaled(10)),
+                  decoration: InputDecoration(
                     hintText: 'Add filter...',
-                    hintStyle:
-                        TextStyle(fontSize: 9, color: Color(0xFF444444)),
+                    hintStyle: TextStyle(
+                        fontSize: _filterScaled(9),
+                        color: const Color(0xFF444444)),
                     isDense: true,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 6, vertical: 7),
+                    contentPadding: EdgeInsets.symmetric(
+                        horizontal: _filterScaled(8),
+                        vertical: _filterScaled(8)),
                     filled: true,
                     fillColor: _surfaceRaised,
                     border: InputBorder.none,
@@ -1459,43 +1545,48 @@ class _SearchScreenState extends State<SearchScreen>
                 ),
               ),
             ),
-            const SizedBox(width: 3),
+            SizedBox(width: _filterScaled(4)),
             InkWell(
               onTap: () => _addFilter(field, controller.text),
               child: Container(
-                padding: const EdgeInsets.all(5),
+                padding: EdgeInsets.all(_filterScaled(6)),
                 color: _accent,
-                child:
-                    const Icon(Icons.add, color: Colors.white, size: 12),
+                child: Icon(Icons.add,
+                    color: Colors.white, size: _filterScaled(12)),
               ),
             ),
           ]),
         ),
         if (active)
           Padding(
-            padding: const EdgeInsets.fromLTRB(5, 0, 5, 5),
+            padding: EdgeInsets.fromLTRB(
+              _filterScaled(6),
+              0,
+              _filterScaled(6),
+              _filterScaled(6),
+            ),
             child: Wrap(
-              spacing: 3,
-              runSpacing: 3,
+              spacing: _filterScaled(4),
+              runSpacing: _filterScaled(4),
               children: tags
                   .map((tag) => Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 5, vertical: 1),
+                        padding: EdgeInsets.symmetric(
+                            horizontal: _filterScaled(6),
+                            vertical: _filterScaled(2)),
                         color: _accent.withValues(alpha: 0.25),
-                        child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(tag,
-                                  style: const TextStyle(
-                                      fontSize: 8,
-                                      color: _text,
-                                      fontWeight: FontWeight.w500)),
-                              const SizedBox(width: 2),
-                              InkWell(
-                                  onTap: () => _removeFilter(field, tag),
-                                  child: const Icon(Icons.close,
-                                      size: 8, color: Colors.white70)),
-                            ]),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text(tag,
+                              style: TextStyle(
+                                  fontSize: _filterScaled(8),
+                                  color: _text,
+                                  fontWeight: FontWeight.w500)),
+                          SizedBox(width: _filterScaled(3)),
+                          InkWell(
+                              onTap: () => _removeFilter(field, tag),
+                              child: Icon(Icons.close,
+                                  size: _filterScaled(8),
+                                  color: Colors.white70)),
+                        ]),
                       ))
                   .toList(),
             ),
@@ -1517,8 +1608,8 @@ class _SearchScreenState extends State<SearchScreen>
           Container(
             padding: const EdgeInsets.all(10),
             color: _accent,
-            child: const Icon(Icons.filter_alt_off,
-                color: Colors.white, size: 20),
+            child:
+                const Icon(Icons.filter_alt_off, color: Colors.white, size: 20),
           ),
           const SizedBox(height: 14),
           const Text('Clear Filters?',
@@ -1531,13 +1622,11 @@ class _SearchScreenState extends State<SearchScreen>
           const SizedBox(height: 16),
           Row(children: [
             Expanded(
-                child: _dlgBtn(
-                    'Cancel', Colors.transparent, _textDim,
+                child: _dlgBtn('Cancel', Colors.transparent, _textDim,
                     () => Navigator.pop(context))),
             const SizedBox(width: 6),
             Expanded(
-                child: _dlgBtn(
-                    'Keep', _border, _text,
+                child: _dlgBtn('Keep', _border, _text,
                     () => Navigator.pop(context, false))),
             const SizedBox(width: 6),
             Expanded(
@@ -1559,9 +1648,7 @@ class _SearchScreenState extends State<SearchScreen>
         child: Center(
             child: Text(text,
                 style: TextStyle(
-                    fontSize: 10,
-                    color: fg,
-                    fontWeight: FontWeight.w600))),
+                    fontSize: 10, color: fg, fontWeight: FontWeight.w600))),
       ),
     );
   }
@@ -1583,13 +1670,12 @@ class _SearchScreenState extends State<SearchScreen>
           return Opacity(
             opacity: _notificationAnimation.value,
             child: Transform.translate(
-              offset:
-                  Offset(0, 16 * (1 - _notificationAnimation.value)),
+              offset: Offset(0, 16 * (1 - _notificationAnimation.value)),
               child: Center(
                 child: Container(
                   constraints: const BoxConstraints(maxWidth: 380),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   color: _accent,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
                     Icon(_notificationIcon ?? Icons.check_circle,
@@ -1605,7 +1691,10 @@ class _SearchScreenState extends State<SearchScreen>
                     InkWell(
                       onTap: () {
                         if (_authService.isLoggedIn) {
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => const ListsScreen()));
+                          Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (_) => const ListsScreen()));
                         }
                       },
                       child: Container(
@@ -1656,13 +1745,22 @@ class _SearchScreenState extends State<SearchScreen>
     // Build all rows (every single field, always shown)
     final rows = <MapEntry<String, String>>[
       MapEntry('Item Name', part.itemName.isNotEmpty ? part.itemName : '—'),
-      MapEntry('Legacy Code', part.legacyCode.isNotEmpty ? part.legacyCode : '—'),
-      MapEntry('Description', part.description.isNotEmpty ? part.description : '—'),
-      MapEntry('Manufacturer', part.manufacturer.isNotEmpty ? part.manufacturer : '—'),
-      MapEntry('Mfr Part #', part.manufacturerPartNumber.isNotEmpty ? part.manufacturerPartNumber : '—'),
-      MapEntry('Supplier Part #', part.supplierPartNumber.isNotEmpty ? part.supplierPartNumber : '—'),
+      MapEntry(
+          'Legacy Code', part.legacyCode.isNotEmpty ? part.legacyCode : '—'),
+      MapEntry(
+          'Description', part.description.isNotEmpty ? part.description : '—'),
+      MapEntry('Manufacturer',
+          part.manufacturer.isNotEmpty ? part.manufacturer : '—'),
+      MapEntry(
+          'Mfr Part #',
+          part.manufacturerPartNumber.isNotEmpty
+              ? part.manufacturerPartNumber
+              : '—'),
+      MapEntry('Supplier Part #',
+          part.supplierPartNumber.isNotEmpty ? part.supplierPartNumber : '—'),
       MapEntry('Location', part.location.isNotEmpty ? part.location : '—'),
-      MapEntry('Unit Cost', part.unitCost > 0 ? '\$${part.unitCost.toStringAsFixed(2)}' : '—'),
+      MapEntry('Unit Cost',
+          part.unitCost > 0 ? '\$${part.unitCost.toStringAsFixed(2)}' : '—'),
       MapEntry('Min', '${part.min}'),
       MapEntry('Max', '${part.max}'),
     ];
@@ -1701,19 +1799,25 @@ class _SearchScreenState extends State<SearchScreen>
               Container(
                 padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
                 decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                  border: Border(bottom: BorderSide(color: _accent.withValues(alpha: 0.15))),
+                  borderRadius:
+                      const BorderRadius.vertical(top: Radius.circular(16)),
+                  border: Border(
+                      bottom:
+                          BorderSide(color: _accent.withValues(alpha: 0.15))),
                 ),
                 child: Row(children: [
                   // Small accent dot
                   Container(
-                    width: 32, height: 32,
+                    width: 32,
+                    height: 32,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
                       color: _accent.withValues(alpha: 0.1),
-                      border: Border.all(color: _accent.withValues(alpha: 0.25)),
+                      border:
+                          Border.all(color: _accent.withValues(alpha: 0.25)),
                     ),
-                    child: Icon(Icons.precision_manufacturing, color: _accent, size: 16),
+                    child: Icon(Icons.precision_manufacturing,
+                        color: _accent, size: 16),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1722,11 +1826,16 @@ class _SearchScreenState extends State<SearchScreen>
                       children: [
                         Text(
                           part.displayName,
-                          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: _text),
+                          style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: _text),
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          part.legacyCode.isNotEmpty ? part.legacyCode : 'No legacy code',
+                          part.legacyCode.isNotEmpty
+                              ? part.legacyCode
+                              : 'No legacy code',
                           style: TextStyle(fontSize: 11, color: _textDim),
                         ),
                       ],
@@ -1740,7 +1849,8 @@ class _SearchScreenState extends State<SearchScreen>
                       _showNotification('All fields copied to clipboard');
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(6),
                         color: _surface,
@@ -1749,7 +1859,12 @@ class _SearchScreenState extends State<SearchScreen>
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
                         Icon(Icons.copy_all, size: 13, color: _textDim),
                         const SizedBox(width: 4),
-                        Text('COPY ALL', style: TextStyle(fontSize: 9, color: _textDim, fontWeight: FontWeight.w600, letterSpacing: 0.8)),
+                        Text('COPY ALL',
+                            style: TextStyle(
+                                fontSize: 9,
+                                color: _textDim,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.8)),
                       ]),
                     ),
                   ),
@@ -1787,7 +1902,8 @@ class _SearchScreenState extends State<SearchScreen>
               Container(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
                 decoration: BoxDecoration(
-                  borderRadius: const BorderRadius.vertical(bottom: Radius.circular(16)),
+                  borderRadius:
+                      const BorderRadius.vertical(bottom: Radius.circular(16)),
                   border: const Border(top: BorderSide(color: _border)),
                 ),
                 child: Row(
@@ -1795,7 +1911,10 @@ class _SearchScreenState extends State<SearchScreen>
                     if (part.unitCost > 0)
                       Text(
                         '\$${part.unitCost.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: Color(0xFF22C55E)),
+                        style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF22C55E)),
                       ),
                     const Spacer(),
                     InkWell(
@@ -1803,26 +1922,35 @@ class _SearchScreenState extends State<SearchScreen>
                       onTap: () {
                         _playSound('tap');
                         if (!_authService.isLoggedIn) {
-                          _showNotification('Sign in to add parts', icon: Icons.login);
+                          _showNotification('Sign in to add parts',
+                              icon: Icons.login);
                           return;
                         }
                         Navigator.pop(ctx);
                         _showAddToListModal(part);
                       },
                       child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           color: _accent,
                         ),
-                        child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.playlist_add, size: 14, color: Colors.white),
-                          SizedBox(width: 6),
-                          Text(
-                            'ADD TO LIST',
-                            style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700, letterSpacing: 1),
-                          ),
-                        ]),
+                        child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.playlist_add,
+                                  size: 14, color: Colors.white),
+                              SizedBox(width: 6),
+                              Text(
+                                'ADD TO LIST',
+                                style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1),
+                              ),
+                            ]),
                       ),
                     ),
                   ],
@@ -1850,7 +1978,11 @@ class _SearchScreenState extends State<SearchScreen>
             width: 110,
             child: Text(
               label.toUpperCase(),
-              style: const TextStyle(fontSize: 10, color: _textDim, fontWeight: FontWeight.w700, letterSpacing: 0.5),
+              style: const TextStyle(
+                  fontSize: 10,
+                  color: _textDim,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5),
             ),
           ),
           Expanded(
@@ -1914,9 +2046,7 @@ class _HoverCardState extends State<_HoverCard> {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           decoration: BoxDecoration(
-            color: _hovered
-                ? const Color(0xFF1E1E1E)
-                : const Color(0xFF141414),
+            color: _hovered ? const Color(0xFF1E1E1E) : const Color(0xFF141414),
             border: Border.all(
               color: _hovered
                   ? const Color(0xFF3B82F6).withValues(alpha: 0.6)
@@ -2033,7 +2163,8 @@ class _AddToListModalState extends State<_AddToListModal> {
                       borderRadius: BorderRadius.circular(8),
                       color: _accent.withValues(alpha: 0.1),
                     ),
-                    child: const Icon(Icons.playlist_add, size: 16, color: _accent),
+                    child: const Icon(Icons.playlist_add,
+                        size: 16, color: _accent),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -2049,8 +2180,8 @@ class _AddToListModalState extends State<_AddToListModal> {
                         Text(partName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                fontSize: 11, color: _textDim)),
+                            style:
+                                const TextStyle(fontSize: 11, color: _textDim)),
                       ],
                     ),
                   ),
@@ -2077,8 +2208,8 @@ class _AddToListModalState extends State<_AddToListModal> {
                       const Icon(Icons.search, size: 16, color: _textDim),
                   filled: true,
                   fillColor: _bg,
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                  contentPadding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   isDense: true,
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
@@ -2106,8 +2237,7 @@ class _AddToListModalState extends State<_AddToListModal> {
                             ? 'No lists matching "$_query"'
                             : 'No lists yet \u2014 create one below',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                            fontSize: 12, color: _textDim),
+                        style: const TextStyle(fontSize: 12, color: _textDim),
                       ),
                     )
                   : ListView.separated(
@@ -2115,8 +2245,7 @@ class _AddToListModalState extends State<_AddToListModal> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 4),
                       itemCount: lists.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: 4),
+                      separatorBuilder: (_, __) => const SizedBox(height: 4),
                       itemBuilder: (ctx, i) {
                         final list = lists[i];
                         final qty = _qtyInList(list);
@@ -2148,8 +2277,7 @@ class _AddToListModalState extends State<_AddToListModal> {
                                     width: 28,
                                     height: 28,
                                     decoration: BoxDecoration(
-                                      borderRadius:
-                                          BorderRadius.circular(6),
+                                      borderRadius: BorderRadius.circular(6),
                                       color: isInList
                                           ? _accent.withValues(alpha: 0.15)
                                           : _border,
@@ -2171,19 +2299,16 @@ class _AddToListModalState extends State<_AddToListModal> {
                                       children: [
                                         Text(list.name,
                                             maxLines: 1,
-                                            overflow:
-                                                TextOverflow.ellipsis,
+                                            overflow: TextOverflow.ellipsis,
                                             style: TextStyle(
                                                 fontSize: 13,
                                                 fontWeight: FontWeight.w600,
                                                 color: isInList
                                                     ? _accent
                                                     : _text)),
-                                        Text(
-                                            '${list.uniqueItemCount} items',
+                                        Text('${list.uniqueItemCount} items',
                                             style: const TextStyle(
-                                                fontSize: 10,
-                                                color: _textDim)),
+                                                fontSize: 10, color: _textDim)),
                                       ],
                                     ),
                                   ),
@@ -2193,24 +2318,21 @@ class _AddToListModalState extends State<_AddToListModal> {
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 8, vertical: 3),
                                       decoration: BoxDecoration(
-                                        borderRadius:
-                                            BorderRadius.circular(10),
+                                        borderRadius: BorderRadius.circular(10),
                                         color: _accent,
                                       ),
                                       child: Text('$qty',
                                           style: const TextStyle(
                                               fontSize: 11,
                                               color: Colors.white,
-                                              fontWeight:
-                                                  FontWeight.w700)),
+                                              fontWeight: FontWeight.w700)),
                                     )
                                   else
                                     Container(
                                       width: 26,
                                       height: 26,
                                       decoration: BoxDecoration(
-                                        borderRadius:
-                                            BorderRadius.circular(6),
+                                        borderRadius: BorderRadius.circular(6),
                                         color: _accent.withValues(alpha: 0.1),
                                       ),
                                       child: const Icon(Icons.add,
@@ -2237,13 +2359,12 @@ class _AddToListModalState extends State<_AddToListModal> {
                         child: TextField(
                           controller: _newListController,
                           autofocus: true,
-                          style: const TextStyle(
-                              color: _text, fontSize: 13),
+                          style: const TextStyle(color: _text, fontSize: 13),
                           onSubmitted: (_) => _createAndAdd(),
                           decoration: InputDecoration(
                             hintText: 'New list name...',
-                            hintStyle: const TextStyle(
-                                color: _textDim, fontSize: 12),
+                            hintStyle:
+                                const TextStyle(color: _textDim, fontSize: 12),
                             filled: true,
                             fillColor: _bg,
                             isDense: true,
@@ -2251,18 +2372,16 @@ class _AddToListModalState extends State<_AddToListModal> {
                                 horizontal: 12, vertical: 10),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide:
-                                  const BorderSide(color: _border),
+                              borderSide: const BorderSide(color: _border),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide:
-                                  const BorderSide(color: _border),
+                              borderSide: const BorderSide(color: _border),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
-                              borderSide: const BorderSide(
-                                  color: _accent, width: 1.5),
+                              borderSide:
+                                  const BorderSide(color: _accent, width: 1.5),
                             ),
                           ),
                         ),
@@ -2288,26 +2407,23 @@ class _AddToListModalState extends State<_AddToListModal> {
                       const SizedBox(width: 4),
                       InkWell(
                         borderRadius: BorderRadius.circular(6),
-                        onTap: () =>
-                            setState(() => _showNewListField = false),
+                        onTap: () => setState(() => _showNewListField = false),
                         child: const Padding(
                           padding: EdgeInsets.all(6),
-                          child: Icon(Icons.close,
-                              size: 14, color: _textDim),
+                          child: Icon(Icons.close, size: 14, color: _textDim),
                         ),
                       ),
                     ])
                   : InkWell(
                       borderRadius: BorderRadius.circular(8),
-                      onTap: () =>
-                          setState(() => _showNewListField = true),
+                      onTap: () => setState(() => _showNewListField = true),
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(vertical: 10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                              color: _accent.withValues(alpha: 0.3)),
+                          border:
+                              Border.all(color: _accent.withValues(alpha: 0.3)),
                           color: _accent.withValues(alpha: 0.05),
                         ),
                         child: const Row(

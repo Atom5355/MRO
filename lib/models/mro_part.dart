@@ -40,7 +40,8 @@ class MroPart {
       ids.add(trimmedLegacyCode);
     }
 
-    if (trimmedItemName.isNotEmpty || trimmedManufacturerPartNumber.isNotEmpty) {
+    if (trimmedItemName.isNotEmpty ||
+        trimmedManufacturerPartNumber.isNotEmpty) {
       ids.add('${trimmedItemName}_$trimmedManufacturerPartNumber');
     }
 
@@ -97,7 +98,17 @@ class MroPart {
     final normalizedQuery = normalizeSearchText(query);
     return searchableText.contains(normalizedQuery) ||
         additionalFields.values.any((value) =>
-        normalizeSearchText(value.toString()).contains(normalizedQuery));
+            normalizeSearchText(value.toString()).contains(normalizedQuery));
+  }
+
+  /// W part numbers are sourced from the Item Name column in the workbook.
+  String get wPartNumber {
+    final trimmedItemName = itemName.trim();
+    if (trimmedItemName.isEmpty ||
+        !trimmedItemName.toLowerCase().startsWith('w')) {
+      return '';
+    }
+    return trimmedItemName;
   }
 
   /// Get the display name (prefer Item Name, fallback to Legacy Code)
