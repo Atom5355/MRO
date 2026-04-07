@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:js_interop';
 import 'dart:js_interop_unsafe';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
 
@@ -9,6 +10,33 @@ import '../models/mro_part.dart';
 class MroDataService {
   static const String _mroConfigAssetPath = 'web/mro-config.json';
   static const String _defaultExcelFileName = 'MRO.xlsx';
+  static const List<String> _primaryDescriptionColumns = [
+    'Item Description',
+    'Description',
+  ];
+  static const Set<String> _excludedColumns = {
+    'location',
+    'legacycode',
+    'itemname',
+    'min',
+    'max',
+    'unitcost',
+    'description',
+    'description2',
+    'description3',
+    'description4',
+    'description5',
+    'description6',
+    'itemdescription',
+    'itemdescription2',
+    'itemdescription3',
+    'itemdescription4',
+    'itemdescription5',
+    'itemdescription6',
+    'manufacturer',
+    'manufacturerpartnumber',
+    'supplierpartnumber',
+  };
 
   // Singleton pattern
   static final MroDataService _instance = MroDataService._internal();
@@ -52,8 +80,8 @@ class MroDataService {
         _columnHeaders = data.first.keys.toList();
       }
 
-      // Define exact column mappings based on MRO file structure
-      // Headers: Location, Legacy Code, Item Name, Min, Max, Unit Cost, Description, Description 2-6, Manufacturer, Manufacturer Part Number, Supplier Part Number
+      // Define exact column mappings based on MRO file structure.
+      // The primary description header may be either Item Description or Description.
 
       // Parse data rows progressively
       _parts = [];
@@ -74,52 +102,7 @@ class MroDataService {
           await Future.delayed(Duration.zero);
         }
 
-        // Get the main description and filter out duplicate Description columns (2-6)
-        final mainDescription = _getString(row, 'Description');
-
-        // Build additional fields, excluding standard columns and duplicate descriptions
-        final additionalFields = <String, dynamic>{};
-        final excludedColumns = {
-          'location',
-          'legacy code',
-          'item name',
-          'min',
-          'max',
-          'unit cost',
-          'description',
-          'description 2',
-          'description 3',
-          'description 4',
-          'description 5',
-          'description 6',
-          'manufacturer',
-          'manufacturer part number',
-          'supplier part number',
-        };
-
-        for (final entry in row.entries) {
-          final keyLower = entry.key.toLowerCase().trim();
-          if (!excludedColumns.contains(keyLower)) {
-            final value = entry.value;
-            if (value != null && value.toString().trim().isNotEmpty) {
-              additionalFields[entry.key] = value;
-            }
-          }
-        }
-
-        final part = MroPart(
-          location: _getString(row, 'Location'),
-          legacyCode: _getString(row, 'Legacy Code'),
-          itemName: _getString(row, 'Item Name'),
-          min: _getInt(row, 'Min'),
-          max: _getInt(row, 'Max'),
-          unitCost: _getUnitCost(row),
-          description: mainDescription,
-          manufacturer: _getString(row, 'Manufacturer'),
-          manufacturerPartNumber: _getString(row, 'Manufacturer Part Number'),
-          supplierPartNumber: _getString(row, 'Supplier Part Number'),
-          additionalFields: additionalFields,
-        );
+        final part = _parsePartRow(row);
 
         // Only add if we have at least a legacy code, item name, or description
         if (part.legacyCode.isNotEmpty ||
@@ -174,6 +157,56 @@ class MroDataService {
     }
   }
 
+  @visibleForTesting
+  static MroPart parsePartRow(Map<String, dynamic> row) {
+    return _instance._parsePartRow(row);
+  }
+
+  MroPart _parsePartRow(Map<String, dynamic> row) {
+    final mainDescription = _getFirstNonEmptyString(
+      row,
+      _primaryDescriptionColumns,
+    );
+
+    final additionalFields = <String, dynamic>{};
+    for (final entry in row.entries) {
+      final normalizedKey = _normalizeColumnName(entry.key);
+      if (!_excludedColumns.contains(normalizedKey)) {
+        final value = entry.value;
+        if (value != null && value.toString().trim().isNotEmpty) {
+          additionalFields[entry.key] = value;
+        }
+      }
+    }
+
+    return MroPart(
+      location: _getString(row, 'Location'),
+      legacyCode: _getString(row, 'Legacy Code'),
+      itemName: _getString(row, 'Item Name'),
+      min: _getInt(row, 'Min'),
+      max: _getInt(row, 'Max'),
+      unitCost: _getUnitCost(row),
+      description: mainDescription,
+      manufacturer: _getString(row, 'Manufacturer'),
+      manufacturerPartNumber: _getString(row, 'Manufacturer Part Number'),
+      supplierPartNumber: _getString(row, 'Supplier Part Number'),
+      additionalFields: additionalFields,
+    );
+  }
+
+  String _getFirstNonEmptyString(
+    Map<String, dynamic> row,
+    Iterable<String> columns,
+  ) {
+    for (final column in columns) {
+      final value = _getString(row, column);
+      if (value.isNotEmpty) {
+        return value;
+      }
+    }
+    return '';
+  }
+
   /// Get value from row with case-insensitive column lookup
   String _getString(Map<String, dynamic> row, String column) {
     // Try exact match first
@@ -181,13 +214,9 @@ class MroDataService {
 
     // If not found, try case-insensitive match
     if (value == null) {
-      final lowerColumn = column.toLowerCase();
-      // Also try removing spaces for columns like "Unit Cost" -> "unitcost"
-      final noSpaceColumn = lowerColumn.replaceAll(' ', '');
+      final normalizedColumn = _normalizeColumnName(column);
       for (final key in row.keys) {
-        final lowerKey = key.toLowerCase();
-        final noSpaceKey = lowerKey.replaceAll(' ', '');
-        if (lowerKey == lowerColumn || noSpaceKey == noSpaceColumn) {
+        if (_normalizeColumnName(key) == normalizedColumn) {
           value = row[key];
           break;
         }
@@ -204,6 +233,10 @@ class MroDataService {
       return '';
     }
     return str;
+  }
+
+  String _normalizeColumnName(String column) {
+    return column.toLowerCase().replaceAll(RegExp(r'\s+'), '');
   }
 
   int _getInt(Map<String, dynamic> row, String column) {
