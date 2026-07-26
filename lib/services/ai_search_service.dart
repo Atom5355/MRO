@@ -20,9 +20,9 @@ class _RankingResult {
 /// Gemini directly evaluates and ranks parts - not just keyword extraction
 class AISearchService {
   final AdvancedSearchService _localSearch = AdvancedSearchService();
-  static const String _modelId = 'gemini-3.1-flash-lite-preview';
+  static const String _modelId = 'gemini-3.6-flash';
   static const String _systemInstruction =
-      'Use high thinking effort for ranking accuracy. Reason carefully and prioritize precise technical matching.';
+      'Use high thinking effort for ranking accuracy. Reason carefully and prioritize precise technical matching to find the correct part number or equivelent functional replacement for its use case scenario whenever and wherever possible';
 
   bool _initialized = false;
 
