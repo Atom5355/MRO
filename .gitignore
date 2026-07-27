@@ -33,6 +33,15 @@ migrate_working_dir/
 /build/
 /coverage/
 
+# Local environment files and Cloudflare Worker state
+**/.dev.vars*
+!**/.dev.vars.example
+**/.env*
+!**/.env.example
+**/node_modules/
+**/.wrangler/
+/worker/dist/
+
 # Symbolication related
 app.*.symbols
 

@@ -1,0 +1,62 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "mro-gemini-proxy",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "secrets": {
+    "required": ["GEMINI_API_KEY"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.05
+    }
+  },
+  "env": {
+    "development": {
+      "name": "mro-gemini-proxy-development",
+      "secrets": {
+        "required": ["GEMINI_API_KEY"]
+      },
+      "vars": {
+        "ENVIRONMENT": "development"
+      },
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "736001",
+          "simple": {
+            "limit": 20,
+            "period": 60
+          }
+        }
+      ]
+    },
+    "production": {
+      "name": "mro-gemini-proxy-production",
+      "secrets": {
+        "required": ["GEMINI_API_KEY"]
+      },
+      "vars": {
+        "ENVIRONMENT": "production"
+      },
+      "ratelimits": [
+        {
+          "name": "RATE_LIMITER",
+          "namespace_id": "736002",
+          "simple": {
+            "limit": 20,
+            "period": 60
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,10 +1,14 @@
 import 'dart:math';
 import '../models/mro_part.dart';
+import 'mro_search_index.dart';
 import 'search_text_utils.dart';
 
 /// Advanced multi-factor search engine for MRO parts
 /// Handles: part types, manufacturers, dimensions, materials, specs, RPM, HP, voltage, etc.
 class AdvancedSearchService {
+  MroSearchIndex? _cachedIndex;
+  List<MroPart>? _cachedParts;
+
   // ============== PART TYPE CATEGORIES ==============
   static final Map<String, Set<String>> _partTypes = {
     'motor': {
@@ -242,35 +246,53 @@ class AdvancedSearchService {
   // ============== SPECIFICATIONS ==============
   static final Map<String, RegExp> _specPatterns = {
     'hp': RegExp(
-      r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*(?:hp|horsepower)',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?|\d+\s*/\s*\d+)\s*(?:-|)?\s*(?:hp|horsepower)(?![a-z0-9])',
       caseSensitive: false,
     ),
     'rpm': RegExp(
-      r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*rpm',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*rpm(?![a-z0-9])',
       caseSensitive: false,
     ),
     'voltage': RegExp(
-      r'(\d+(?:/\d+)?)\s*(?:-|)?\s*(?:v|volt|volts|vac|vdc)',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?(?:\s*[/,\-]\s*\d+(?:\.\d+)?)*)\s*(?:-|)?\s*(?:v|volt|volts|vac|vdc)(?![a-z0-9])',
       caseSensitive: false,
     ),
     'amp': RegExp(
-      r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*(?:a|amp|amps)',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*(?:a|amp|amps)(?![a-z0-9])',
       caseSensitive: false,
     ),
     'watt': RegExp(
-      r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*(?:w|watt|watts)',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*(?:w|watt|watts)(?![a-z0-9])',
       caseSensitive: false,
     ),
-    'psi': RegExp(r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*psi', caseSensitive: false),
-    'gpm': RegExp(r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*gpm', caseSensitive: false),
-    'cfm': RegExp(r'(\d+(?:\.\d+)?)\s*(?:-|)?\s*cfm', caseSensitive: false),
+    'psi': RegExp(
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*psi(?![a-z0-9])',
+      caseSensitive: false,
+    ),
+    'gpm': RegExp(
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*gpm(?![a-z0-9])',
+      caseSensitive: false,
+    ),
+    'cfm': RegExp(
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(?:-|)?\s*cfm(?![a-z0-9])',
+      caseSensitive: false,
+    ),
     'ratio': RegExp(
-      r'(\d+(?:\.\d+)?)\s*:\s*1\s*(?:ratio)?',
+      r'(?<![a-z0-9])(\d+(?:\.\d+)?)\s*:\s*1\s*(?:ratio)?(?![a-z0-9])',
       caseSensitive: false,
     ),
-    'teeth': RegExp(r'(\d+)\s*(?:t|teeth|tooth)', caseSensitive: false),
-    'pitch': RegExp(r'(\d+)\s*(?:pitch|p)', caseSensitive: false),
-    'phase': RegExp(r'(\d)\s*(?:ph|phase)', caseSensitive: false),
+    'teeth': RegExp(
+      r'(?<![a-z0-9])(\d+)\s*(?:t|teeth|tooth)(?![a-z0-9])',
+      caseSensitive: false,
+    ),
+    'pitch': RegExp(
+      r'(?<![a-z0-9])(\d+)\s*(?:pitch|p)(?![a-z0-9])',
+      caseSensitive: false,
+    ),
+    'phase': RegExp(
+      r'(?<![a-z0-9])(\d)\s*(?:ph|phase)(?![a-z0-9])',
+      caseSensitive: false,
+    ),
   };
 
   // ============== CHAIN/BELT SIZES ==============
@@ -472,12 +494,33 @@ class AdvancedSearchService {
   };
 
   /// Main search method
-  List<SearchResult> search(List<MroPart> parts, String query) {
-    return searchCandidates(parts, query, minimumScore: 30);
+  List<SearchResult> search(
+    List<MroPart> parts,
+    String query, {
+    MroSearchIndex? index,
+  }) {
+    return searchCandidates(
+      parts,
+      query,
+      minimumScore: 30,
+      index: index,
+    );
   }
 
-  String describeQuery(String query, {int? resultCount}) {
-    final parsedQuery = _parseQuery(query);
+  /// Search directly against the reusable index produced by MroDataService.
+  List<SearchResult> searchIndexed(MroSearchIndex index, String query) {
+    return search(index.parts, query, index: index);
+  }
+
+  String describeQuery(
+    String query, {
+    int? resultCount,
+    MroSearchIndex? index,
+  }) {
+    final parsedQuery = _parseQuery(
+      query,
+      index ?? MroSearchIndex.build(const <MroPart>[]),
+    );
     final segments = <String>[];
 
     if (parsedQuery.primaryType != null) {
@@ -503,14 +546,17 @@ class AdvancedSearchService {
     if (parsedQuery.specs.isNotEmpty) {
       segments.add(
         parsedQuery.specs.entries
-            .map((entry) => '${entry.value} ${entry.key}')
+            .map(
+              (entry) =>
+                  '${entry.value.map(_formatNumber).join('/')} ${entry.key}',
+            )
             .join(', '),
       );
     }
 
     if (parsedQuery.dimensions.isNotEmpty) {
       segments.add(
-        'dimensions ${parsedQuery.dimensions.map(_formatNumber).join(', ')}',
+        'dimensions ${parsedQuery.dimensions.map(_formatDimension).join(', ')}',
       );
     }
 
@@ -534,20 +580,42 @@ class AdvancedSearchService {
     String query, {
     double minimumScore = 30,
     int? limit,
+    MroSearchIndex? index,
   }) {
+    final activeIndex = _resolveIndex(parts, index);
+
     if (query.trim().isEmpty) {
-      final allParts = parts
-          .take(100)
-          .map((p) => SearchResult(part: p, score: 1.0, matchReasons: []))
+      final allParts = activeIndex.parts
+          .map((p) => SearchResult(part: p, score: 0, matchReasons: const []))
           .toList();
       return limit == null ? allParts : allParts.take(limit).toList();
     }
 
-    final parsedQuery = _parseQuery(query);
+    final exactMatches = activeIndex.exactIdentifierMatches(query);
+    if (exactMatches.isNotEmpty) {
+      // Exact aliases can be duplicated in the workbook. Never collapse or
+      // truncate those rows; stableId keeps them distinct downstream.
+      return exactMatches
+          .map(
+            (part) => SearchResult(
+              part: part,
+              score: 1000,
+              matchReasons: const ['Exact Part#'],
+              kind: SearchResultKind.exact,
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    final parsedQuery = _parseQuery(query, activeIndex);
     final results = <SearchResult>[];
 
-    for (final part in parts) {
-      final result = _scorePart(part, parsedQuery, minimumScore: minimumScore);
+    for (final entry in activeIndex.entries) {
+      final result = _scorePart(
+        entry,
+        parsedQuery,
+        minimumScore: minimumScore,
+      );
       if (result != null) {
         results.add(result);
       }
@@ -557,8 +625,35 @@ class AdvancedSearchService {
     return limit == null ? results : results.take(limit).toList();
   }
 
+  /// Return every exact, punctuation-insensitive identifier match.
+  List<MroPart> exactIdentifierMatches(
+    List<MroPart> parts,
+    String query, {
+    MroSearchIndex? index,
+  }) {
+    return _resolveIndex(parts, index).exactIdentifierMatches(query);
+  }
+
+  MroSearchIndex _resolveIndex(
+    List<MroPart> parts,
+    MroSearchIndex? suppliedIndex,
+  ) {
+    if (suppliedIndex != null && suppliedIndex.represents(parts)) {
+      return suppliedIndex;
+    }
+    if (_cachedIndex != null &&
+        _cachedParts != null &&
+        _cachedIndex!.represents(parts)) {
+      return _cachedIndex!;
+    }
+
+    _cachedParts = parts;
+    _cachedIndex = MroSearchIndex.build(parts);
+    return _cachedIndex!;
+  }
+
   /// Parse the query into structured components
-  _ParsedQuery _parseQuery(String query) {
+  _ParsedQuery _parseQuery(String query, MroSearchIndex index) {
     final normalized = normalizeSearchText(query);
     final tokens = _tokenize(normalized);
     final phrases = _buildPhrases(tokens);
@@ -607,26 +702,36 @@ class AdvancedSearchService {
     // 2. Find MANUFACTURER
     String? manufacturer;
     double manufacturerConfidence = 0.0;
+    final indexedManufacturers = index.normalizedManufacturers.keys;
+    final manufacturerCandidates = (indexedManufacturers.isNotEmpty
+            ? indexedManufacturers
+            : _knownManufacturers)
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+
     for (final pattern in [
-      RegExp(r'\bfrom\s+([a-z\-]+)', caseSensitive: false),
-      RegExp(r'\bby\s+([a-z\-]+)', caseSensitive: false),
-      RegExp(r'\bmade\s+by\s+([a-z\-]+)', caseSensitive: false),
+      RegExp(r'\bfrom\s+(.+)$', caseSensitive: false),
+      RegExp(r'\bmade\s+by\s+(.+)$', caseSensitive: false),
+      RegExp(r'\bby\s+(.+)$', caseSensitive: false),
     ]) {
       final match = pattern.firstMatch(normalized);
       if (match != null) {
-        manufacturer = match.group(1);
-        manufacturerConfidence = 1.0;
-        break;
-      }
-    }
-
-    if (manufacturer == null) {
-      for (final term in searchableTerms) {
-        for (final mfg in _knownManufacturers) {
-          if (term == mfg || normalized.contains(mfg)) {
-            manufacturer = mfg;
-            manufacturerConfidence = term.contains(' ') ? 1.0 : 0.85;
+        final explicitValue = match.group(1) ?? '';
+        for (final candidate in manufacturerCandidates) {
+          if (containsSearchPhrase(explicitValue, candidate)) {
+            manufacturer = candidate;
+            manufacturerConfidence = 1.0;
             break;
+          }
+        }
+        if (manufacturer == null) {
+          final firstExplicitToken =
+              tokenizeSearchText(explicitValue).firstOrNull;
+          if (firstExplicitToken != null) {
+            manufacturer = firstExplicitToken;
+            manufacturerConfidence = 0.72;
           }
         }
         if (manufacturer != null) break;
@@ -634,10 +739,25 @@ class AdvancedSearchService {
     }
 
     if (manufacturer == null) {
+      for (final candidate in manufacturerCandidates) {
+        if (containsSearchPhrase(normalized, candidate)) {
+          manufacturer = candidate;
+          manufacturerConfidence = candidate.contains(' ') ? 1.0 : 0.9;
+          break;
+        }
+      }
+    }
+
+    if (manufacturer == null) {
       for (final token in tokens) {
-        for (final mfg in _knownManufacturers) {
-          if (_similarity(token, mfg) >= 0.88) {
-            manufacturer = mfg;
+        if (token.length < 3) continue;
+        for (final candidate in manufacturerCandidates) {
+          if (candidate.contains(' ') ||
+              (candidate.length - token.length).abs() > 2) {
+            continue;
+          }
+          if (_similarity(token, candidate) >= 0.88) {
+            manufacturer = candidate;
             manufacturerConfidence = 0.6;
             break;
           }
@@ -651,7 +771,7 @@ class AdvancedSearchService {
     final materials = <String>{};
     for (final entry in _materials.entries) {
       for (final variant in entry.value) {
-        if (normalized.contains(variant)) {
+        if (containsSearchPhrase(normalized, variant)) {
           materials.add(entry.key);
           break;
         }
@@ -659,15 +779,17 @@ class AdvancedSearchService {
     }
 
     // 4. Extract SPECIFICATIONS (HP, RPM, voltage, etc.)
-    final specs = <String, String>{};
+    final specs = <String, List<double>>{};
     for (final entry in _specPatterns.entries) {
-      final match = entry.value.firstMatch(normalized);
-      if (match != null) {
-        specs[entry.key] = match.group(1)!;
+      final values = _extractSpecValues(entry.key, normalized);
+      if (values.isNotEmpty) {
+        specs[entry.key] = values;
       }
     }
 
-    final identifierTerms = _extractIdentifierTerms(query, tokens, specs.values.toSet());
+    final specValues =
+        specs.values.expand((values) => values).map(_formatNumber).toSet();
+    final identifierTerms = _extractIdentifierTerms(query, tokens, specValues);
 
     // 5. Extract CHAIN/BELT SIZE (critical for chain/belt/sprocket searches)
     String? partSize;
@@ -676,8 +798,9 @@ class AdvancedSearchService {
         primaryType == 'roller' ||
         normalized.contains('chain') ||
         normalized.contains('sprocket');
-    final isBeltContext =
-        primaryType == 'belt' || normalized.contains('belt') || normalized.contains('v-belt');
+    final isBeltContext = primaryType == 'belt' ||
+        normalized.contains('belt') ||
+        normalized.contains('v-belt');
 
     if (isChainContext) {
       // Look for chain sizes like "50", "#50", "60", "#80"
@@ -711,12 +834,16 @@ class AdvancedSearchService {
     }
 
     // 6. Extract DIMENSIONS (numbers/fractions) - but exclude chain sizes
-    final dimensions = _extractNumbers(query);
+    final dimensions = extractSearchDimensions(query).toList(growable: true);
     // Remove the chain size from dimensions if it was detected
     if (partSize != null) {
       final partSizeNum = double.tryParse(partSize);
       if (partSizeNum != null) {
-        dimensions.removeWhere((d) => (d - partSizeNum).abs() < 0.01);
+        dimensions.removeWhere(
+          (dimension) =>
+              !dimension.hasUnit &&
+              (dimension.value - partSizeNum).abs() < 0.01,
+        );
       }
     }
 
@@ -740,7 +867,9 @@ class AdvancedSearchService {
       if (token == primaryMatch) continue;
       if (token == manufacturer) continue;
       if (token == partSize) continue;
-      if (identifierTerms.any((term) => normalizeSearchIdentifier(term) == normalizeSearchIdentifier(token))) {
+      if (identifierTerms.any((term) =>
+          normalizeSearchIdentifier(term) ==
+          normalizeSearchIdentifier(token))) {
         continue;
       }
       if (RegExp(r'^\d+$').hasMatch(token)) continue;
@@ -788,10 +917,11 @@ class AdvancedSearchService {
 
   /// Score a part against the parsed query - COMPREHENSIVE MULTI-FACTOR SCORING
   SearchResult? _scorePart(
-    MroPart part,
+    IndexedMroPart indexedPart,
     _ParsedQuery query, {
     double minimumScore = 30,
   }) {
+    final part = indexedPart.part;
     double score = 0;
     final reasons = <String>[];
 
@@ -801,12 +931,12 @@ class AdvancedSearchService {
       }
     }
 
-    final itemNameLower = normalizeSearchText(part.itemName);
-    final descLower = normalizeSearchText(part.description);
-    final mfgLower = part.normalizedManufacturer;
-    final partText = part.searchableText;
-    final partTokens = part.searchTokens;
-    final partNumbers = _extractNumbers(partText);
+    final itemNameLower = indexedPart.itemName;
+    final descLower = indexedPart.description;
+    final mfgLower = indexedPart.manufacturer;
+    final partText = indexedPart.searchableText;
+    final partTokens = indexedPart.tokens;
+    final partDimensions = indexedPart.dimensions;
 
     final normalizedIdentifierTerms = query.identifierTerms
         .map(normalizeSearchIdentifier)
@@ -814,11 +944,13 @@ class AdvancedSearchService {
         .toSet();
 
     for (final queryIdentifier in normalizedIdentifierTerms) {
-      if (part.normalizedPartIdentifiers.contains(queryIdentifier)) {
+      if (indexedPart.identifiers.contains(queryIdentifier)) {
         score += 420;
         addReason('Exact Part#');
-      } else if (part.normalizedPartIdentifiers
-          .any((identifier) => identifier.contains(queryIdentifier) || queryIdentifier.contains(identifier))) {
+      } else if (queryIdentifier.length >= 4 &&
+          indexedPart.identifiers.any((identifier) =>
+              identifier.contains(queryIdentifier) ||
+              queryIdentifier.contains(identifier))) {
         score += 220;
         addReason('Part#');
       }
@@ -832,7 +964,7 @@ class AdvancedSearchService {
 
       // Check item name first (most accurate)
       for (final variant in typeVariants) {
-        if (itemNameLower.contains(variant)) {
+        if (containsSearchPhrase(itemNameLower, variant)) {
           typeMatches = true;
           score += typeWeight;
           addReason(query.primaryType!.toUpperCase());
@@ -843,7 +975,7 @@ class AdvancedSearchService {
       // Then check description
       if (!typeMatches) {
         for (final variant in typeVariants) {
-          if (descLower.contains(variant)) {
+          if (containsSearchPhrase(descLower, variant)) {
             typeMatches = true;
             score += typeWeight * 0.72;
             addReason(query.primaryType!.toUpperCase());
@@ -854,7 +986,8 @@ class AdvancedSearchService {
 
       if (!typeMatches) {
         for (final variant in typeVariants) {
-          if (partTokens.contains(variant) || partText.contains(variant)) {
+          if (partTokens.contains(variant) ||
+              containsSearchPhrase(partText, variant)) {
             typeMatches = true;
             score += typeWeight * 0.5;
             addReason('~${query.primaryType!.toUpperCase()}');
@@ -875,39 +1008,18 @@ class AdvancedSearchService {
     // ========== RULE 2: PART SIZE (Chain #, Belt size - CRITICAL) ==========
     if (query.partSize != null) {
       final size = query.partSize!;
-      bool sizeMatched = false;
-
-      // Check for exact size match with various formats
-      final sizePatterns = [
-        '#$size', // #50
-        '$size-', // 50-
-        '-$size', // -50
-        ' $size ', // 50
-        ',$size,', // ,50,
-        '#$size-', // #50-
-        '${size}h', // 50H (heavy)
-        '${size}l', // 50L
-        '${size}ss', // 50SS (stainless)
-        RegExp(r'\b' + size + r'\b'), // word boundary match
-      ];
-
-      for (final pattern in sizePatterns) {
-        if (pattern is RegExp) {
-          if (pattern.hasMatch(partText)) {
-            sizeMatched = true;
-            break;
-          }
-        } else if (partText.contains(pattern as String)) {
-          sizeMatched = true;
-          break;
-        }
-      }
+      final sizePattern = RegExp(
+        '(^|[^0-9])#?${RegExp.escape(size)}(?:h|l|ss)?(?=\$|[^0-9])',
+      );
+      final sizeMatched = sizePattern.hasMatch(partText);
 
       if (sizeMatched) {
         score += 150; // Very high - this is exactly what they want
         addReason('#$size');
       } else {
-        score -= query.primaryType == 'chain' || query.primaryType == 'belt' ? 120 : 70;
+        score -= query.primaryType == 'chain' || query.primaryType == 'belt'
+            ? 120
+            : 70;
       }
     }
 
@@ -915,21 +1027,11 @@ class AdvancedSearchService {
     for (final num in query.criticalNumbers) {
       if (query.partSize == num) continue; // Already handled above
 
-      // Check if this number appears as a part identifier
-      final numPatterns = ['#$num', '-$num', '$num-', ' $num '];
-      bool numFound = false;
-      for (final pattern in numPatterns) {
-        if (partText.contains(pattern)) {
-          score += 50;
-          addReason('#$num');
-          numFound = true;
-          break;
-        }
-      }
-
-      // Also check with word boundary
-      if (!numFound && RegExp(r'\b' + num + r'\b').hasMatch(partText)) {
-        score += 30;
+      final numberPattern = RegExp(
+        '(^|[^0-9])#?${RegExp.escape(num)}(?=\$|[^0-9])',
+      );
+      if (numberPattern.hasMatch(partText)) {
+        score += partText.contains('#$num') ? 50 : 30;
         addReason(num);
       }
     }
@@ -940,7 +1042,7 @@ class AdvancedSearchService {
       bool mfgMatched = false;
 
       // Direct match
-      if (mfgLower.contains(mfgQuery)) {
+      if (mfgLower == mfgQuery || containsSearchPhrase(mfgLower, mfgQuery)) {
         score += 110 * max(query.manufacturerConfidence, 0.4);
         addReason('MFG:${part.manufacturer}');
         mfgMatched = true;
@@ -971,7 +1073,7 @@ class AdvancedSearchService {
     for (final mat in query.materials) {
       final matVariants = _materials[mat]!;
       for (final variant in matVariants) {
-        if (partText.contains(variant)) {
+        if (containsSearchPhrase(partText, variant)) {
           materialScore += 45;
           addReason(mat.toUpperCase());
           break;
@@ -983,33 +1085,32 @@ class AdvancedSearchService {
     // ========== RULE 6: SPEC MATCH (HP, RPM, Voltage, etc.) ==========
     for (final entry in query.specs.entries) {
       final specName = entry.key;
-      final specValue = entry.value;
+      final queryValues = entry.value;
+      final partValues = _extractSpecValues(specName, partText);
 
-      // Build pattern to find this spec in part text
-      final specPattern = _specPatterns[specName]!;
-      final match = specPattern.firstMatch(partText);
+      if (partValues.isNotEmpty) {
+        final matchedValues = queryValues
+            .where(
+              (queryValue) => partValues.any(
+                (partValue) =>
+                    _specValuesMatch(specName, queryValue, partValue),
+              ),
+            )
+            .toList(growable: false);
 
-      if (match != null) {
-        final partValue = match.group(1)!;
-        if (partValue == specValue) {
+        if (matchedValues.length == queryValues.length) {
           score += 80;
-          addReason('$specValue ${specName.toUpperCase()}');
+          addReason(
+            '${queryValues.map(_formatNumber).join('/')} ${specName.toUpperCase()}',
+          );
+        } else if (matchedValues.isNotEmpty) {
+          score += 20;
+          score -= 25;
+          addReason('~${specName.toUpperCase()}');
         } else {
-          final queryNumber = double.tryParse(specValue);
-          final partNumber = double.tryParse(partValue);
-
-          if (queryNumber != null && partNumber != null) {
-            final delta = (queryNumber - partNumber).abs();
-            final tolerance = max(queryNumber.abs() * 0.12, 0.5);
-            if (delta <= tolerance) {
-              score += 45;
-              addReason('~$specValue ${specName.toUpperCase()}');
-            } else {
-              score += 10;
-            }
-          } else {
-            score += 20;
-          }
+          // A stated but incompatible specification is negative evidence, not
+          // a weak positive signal.
+          score -= 65;
         }
       }
     }
@@ -1017,35 +1118,23 @@ class AdvancedSearchService {
     // ========== RULE 7: DIMENSION MATCH ==========
     for (final qDim in query.dimensions) {
       bool dimMatched = false;
-      for (final pDim in partNumbers) {
-        final diff = (qDim - pDim).abs();
-        if (diff < 0.001) {
+      for (final pDim in partDimensions) {
+        final match = _compareDimensions(qDim, pDim);
+        if (match == _DimensionMatch.exact) {
           score += 70;
-          addReason(_formatNumber(qDim));
+          addReason(_formatDimension(qDim));
           dimMatched = true;
           break;
-        } else if (diff < 0.03) {
+        } else if (match == _DimensionMatch.approximate) {
           score += 35;
-          addReason('≈${_formatNumber(qDim)}');
+          addReason('≈${_formatDimension(qDim)}');
           dimMatched = true;
           break;
         }
       }
 
-      // Also check for fraction string directly
-      if (!dimMatched) {
-        final fractionStr = _numberToFraction(qDim);
-        if (fractionStr != null) {
-          // Check various formats: 1-7/16, 1 7/16, 1.4375
-          if (partText.contains(fractionStr) ||
-              partText.contains(fractionStr.replaceAll('-', ' ')) ||
-              partText.contains(
-                qDim.toStringAsFixed(4).replaceAll(RegExp(r'0+$'), ''),
-              )) {
-            score += 70;
-            addReason(fractionStr);
-          }
-        }
+      if (!dimMatched && partDimensions.isNotEmpty) {
+        score -= 45;
       }
     }
 
@@ -1060,9 +1149,11 @@ class AdvancedSearchService {
       bool matched = false;
 
       for (final variant in variations) {
-        if (partText.contains(variant) || partTokens.contains(variant)) {
+        if (partTokens.contains(variant) ||
+            containsSearchPhrase(partText, variant)) {
           keywordsMatched++;
-          keywordScore += 22;
+          keywordScore += 26;
+          addReason(kw);
           matched = true;
           break;
         }
@@ -1070,12 +1161,14 @@ class AdvancedSearchService {
 
       if (!matched) {
         // Fuzzy match
-        for (final pt in _tokenize(partText)) {
-          if (pt.length >= 3 && _similarity(kw, pt) > 0.82) {
-            keywordsMatched++;
-            keywordScore += 10;
-            addReason('~$kw');
-            break;
+        if (kw.length >= 3) {
+          for (final pt in _tokenize(partText)) {
+            if (pt.length >= 3 && _similarity(kw, pt) > 0.82) {
+              keywordsMatched++;
+              keywordScore += 10;
+              addReason('~$kw');
+              break;
+            }
           }
         }
       }
@@ -1089,7 +1182,9 @@ class AdvancedSearchService {
       addReason('All keywords');
     }
 
-    if (query.keywords.isNotEmpty && keywordsMatched == 0 && query.identifierTerms.isEmpty) {
+    if (query.keywords.isNotEmpty &&
+        keywordsMatched == 0 &&
+        query.identifierTerms.isEmpty) {
       score -= 10;
     }
 
@@ -1105,7 +1200,12 @@ class AdvancedSearchService {
     // Minimum threshold
     if (score < minimumScore) return null;
 
-    return SearchResult(part: part, score: score, matchReasons: reasons);
+    return SearchResult(
+      part: part,
+      score: score,
+      matchReasons: reasons,
+      kind: SearchResultKind.local,
+    );
   }
 
   List<String> _extractIdentifierTerms(
@@ -1114,26 +1214,31 @@ class AdvancedSearchService {
     Set<String> specValues,
   ) {
     final identifiers = <String>{};
+    final normalizedSpecValues =
+        specValues.map(normalizeSearchIdentifier).toSet();
 
-    for (final token in tokenizeSearchText(rawQuery.replaceAll('/', ' '))) {
+    for (final token in tokenizeSearchText(rawQuery)) {
       final normalizedIdentifier = normalizeSearchIdentifier(token);
-      if (normalizedIdentifier.length < 4) {
+      if (normalizedIdentifier.length < 2) {
         continue;
       }
 
-      final isMixedAlphaNumeric = RegExp(r'^(?=.*[a-z])(?=.*\d)[a-z0-9\-#]+$')
+      final isMixedAlphaNumeric = RegExp(r'^(?=.*[a-z])(?=.*\d)[a-z0-9\-#/.]+$')
           .hasMatch(token.toLowerCase());
-      final isStructuredNumeric = RegExp(r'^#?\d{4,}$').hasMatch(token);
+      final isStructuredNumeric = RegExp(r'^#\d{1,}$').hasMatch(token) ||
+          RegExp(r'^\d{4,}$').hasMatch(token);
 
       if ((isMixedAlphaNumeric || isStructuredNumeric) &&
-          !specValues.contains(token)) {
+          !normalizedSpecValues.contains(normalizedIdentifier)) {
         identifiers.add(token);
       }
     }
 
     if (identifiers.isEmpty) {
       for (final token in tokens) {
-        if (token.length >= 5 && RegExp(r'[a-z]').hasMatch(token) && RegExp(r'\d').hasMatch(token)) {
+        if (token.length >= 5 &&
+            RegExp(r'[a-z]').hasMatch(token) &&
+            RegExp(r'\d').hasMatch(token)) {
           identifiers.add(token);
         }
       }
@@ -1156,42 +1261,65 @@ class AdvancedSearchService {
     return phrases;
   }
 
-  /// Extract all numbers from text (including fractions)
-  List<double> _extractNumbers(String text) {
-    final numbers = <double>{};
+  List<double> _extractSpecValues(String specName, String text) {
+    final pattern = _specPatterns[specName];
+    if (pattern == null) return const [];
 
-    // Mixed fractions: "1 and 7/16", "1-7/16", "1 7/16"
-    for (final pattern in [
-      RegExp(r'(\d+)\s*and\s*(\d+)/(\d+)'),
-      RegExp(r'(\d+)-(\d+)/(\d+)'),
-      RegExp(r'(\d+)\s+(\d+)/(\d+)'),
-    ]) {
-      for (final m in pattern.allMatches(text)) {
-        final w = int.tryParse(m.group(1) ?? '');
-        final n = int.tryParse(m.group(2) ?? '');
-        final d = int.tryParse(m.group(3) ?? '');
-        if (w != null && n != null && d != null && d != 0) {
-          numbers.add(w + n / d);
+    final values = <double>{};
+    for (final match in pattern.allMatches(text)) {
+      final rawValue = match.group(1) ?? '';
+      if (specName == 'voltage') {
+        for (final component in rawValue.split(RegExp(r'\s*[/,\-]\s*'))) {
+          final value = double.tryParse(component);
+          if (value != null) values.add(value);
         }
+      } else {
+        final value = _parseSpecNumber(rawValue);
+        if (value != null) values.add(value);
       }
     }
+    return values.toList(growable: false);
+  }
 
-    // Simple fractions
-    for (final m in RegExp(r'(?<!\d[\s\-])(\d+)/(\d+)').allMatches(text)) {
-      final n = int.tryParse(m.group(1) ?? '');
-      final d = int.tryParse(m.group(2) ?? '');
-      if (n != null && d != null && d != 0 && n < d) {
-        numbers.add(n / d);
+  double? _parseSpecNumber(String rawValue) {
+    final normalized = rawValue.replaceAll(RegExp(r'\s+'), '');
+    final fraction = RegExp(r'^(\d+)/(\d+)$').firstMatch(normalized);
+    if (fraction != null) {
+      final numerator = double.tryParse(fraction.group(1) ?? '');
+      final denominator = double.tryParse(fraction.group(2) ?? '');
+      if (numerator != null && denominator != null && denominator != 0) {
+        return numerator / denominator;
       }
     }
+    return double.tryParse(normalized);
+  }
 
-    // Decimals
-    for (final m in RegExp(r'(\d+\.\d+)').allMatches(text)) {
-      final num = double.tryParse(m.group(1) ?? '');
-      if (num != null) numbers.add(num);
+  bool _specValuesMatch(String specName, double query, double part) {
+    final tolerance = switch (specName) {
+      'voltage' => max(query.abs() * 0.01, 0.5),
+      'phase' || 'teeth' => 0.001,
+      _ => max(query.abs() * 0.12, 0.5),
+    };
+    return (query - part).abs() <= tolerance;
+  }
+
+  _DimensionMatch _compareDimensions(
+    SearchDimension query,
+    SearchDimension part,
+  ) {
+    if (query.hasUnit && part.hasUnit) {
+      final difference = (query.millimeters - part.millimeters).abs();
+      if (difference <= 0.0254) return _DimensionMatch.exact;
+      if (difference <= 0.8) return _DimensionMatch.approximate;
+      return _DimensionMatch.none;
     }
 
-    return numbers.toList();
+    // A unitless fraction or decimal comes from legacy workbook text. Compare
+    // its source value exactly as the old search implementation did.
+    final difference = (query.value - part.value).abs();
+    if (difference < 0.001) return _DimensionMatch.exact;
+    if (difference < 0.03) return _DimensionMatch.approximate;
+    return _DimensionMatch.none;
   }
 
   List<String> _tokenize(String text) {
@@ -1240,6 +1368,11 @@ class AdvancedSearchService {
         .replaceAll(RegExp(r'\.$'), '');
   }
 
+  String _formatDimension(SearchDimension dimension) {
+    final value = _formatNumber(dimension.value);
+    return dimension.hasUnit ? '$value ${dimension.unitLabel}' : value;
+  }
+
   String? _numberToFraction(double n) {
     final whole = n.truncate();
     final frac = n - whole;
@@ -1259,6 +1392,8 @@ class AdvancedSearchService {
   }
 }
 
+enum _DimensionMatch { none, approximate, exact }
+
 class _ParsedQuery {
   final String original;
   final String normalized;
@@ -1268,10 +1403,10 @@ class _ParsedQuery {
   final String? manufacturer;
   final double manufacturerConfidence;
   final List<String> materials;
-  final Map<String, String> specs;
+  final Map<String, List<double>> specs;
   final String? partSize; // Chain size, belt size, etc.
   final List<String> criticalNumbers; // Important part identifiers
-  final List<double> dimensions;
+  final List<SearchDimension> dimensions;
   final List<String> identifierTerms;
   final List<String> keywords;
 
@@ -1298,14 +1433,33 @@ class _ParsedQuery {
   }
 }
 
+enum SearchResultKind { local, exact, ai }
+
 class SearchResult {
   final MroPart part;
+
+  /// Unbounded internal score used only for deterministic ordering.
   final double score;
   final List<String> matchReasons;
+  final SearchResultKind kind;
+  final double? relevance;
 
   SearchResult({
     required this.part,
     required this.score,
     required this.matchReasons,
-  });
+    this.kind = SearchResultKind.local,
+    double? relevance,
+  }) : relevance = relevance?.clamp(0, 100).toDouble();
+
+  double? get displayRelevance {
+    if (kind != SearchResultKind.ai) return null;
+    return relevance ?? score.clamp(0, 100).toDouble();
+  }
+
+  String get displayLabel => switch (kind) {
+        SearchResultKind.exact => 'EXACT',
+        SearchResultKind.local => 'LOCAL',
+        SearchResultKind.ai => '${displayRelevance!.round()}%',
+      };
 }

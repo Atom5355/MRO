@@ -9,7 +9,7 @@ class CartItem {
   CartItem({required this.part, this.quantity = 1});
 
   /// Get a unique identifier for the cart item
-  String get id => part.partId;
+  String get id => part.stableId;
 
   /// Calculate line total
   double get lineTotal => part.unitCost * quantity;
@@ -112,6 +112,6 @@ class CartService extends ChangeNotifier {
 
   /// Get unique ID for a part
   String _getPartId(MroPart part) {
-    return part.partId;
+    return part.stableId;
   }
 }

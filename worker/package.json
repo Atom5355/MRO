@@ -1,0 +1,28 @@
+{
+  "name": "mro-gemini-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "types": "wrangler types",
+    "types:check": "wrangler types --check",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "npm run types:check && npm run typecheck && npm test",
+    "dev": "wrangler dev --env development",
+    "deploy:dry-run": "wrangler deploy --env production --dry-run --outdir dist",
+    "deploy:development": "wrangler deploy --env development",
+    "deploy:production": "wrangler deploy --env production"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.18.8",
+    "@types/node": "22.15.17",
+    "typescript": "5.9.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.114.0"
+  }
+}

@@ -15,6 +15,29 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install Worker dependencies
+        working-directory: worker
+        run: npm ci
+
+      - name: Check generated Worker bindings
+        working-directory: worker
+        run: npm run types:check
+
+      - name: Type-check Worker
+        working-directory: worker
+        run: npm run typecheck
+
+      - name: Test Worker
+        working-directory: worker
+        run: npm test
       
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -23,9 +46,26 @@ jobs:
       
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Analyze Flutter app
+        run: flutter analyze
+
+      - name: Test Flutter app
+        run: flutter test
+
+      - name: Require production AI endpoint
+        env:
+          AI_SEARCH_ENDPOINT: ${{ vars.AI_SEARCH_ENDPOINT }}
+        run: |
+          if [ -z "$AI_SEARCH_ENDPOINT" ]; then
+            echo "::error::Set the AI_SEARCH_ENDPOINT repository variable to the deployed Worker's full /v1/rank URL."
+            exit 1
+          fi
       
       - name: Build web
-        run: flutter build web --release --no-tree-shake-icons --base-href "/MRO/"
+        env:
+          AI_SEARCH_ENDPOINT: ${{ vars.AI_SEARCH_ENDPOINT }}
+        run: flutter build web --release --no-tree-shake-icons --base-href "/MRO/" --dart-define=AI_SEARCH_ENDPOINT="$AI_SEARCH_ENDPOINT"
       
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

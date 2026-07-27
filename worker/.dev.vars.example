@@ -1,0 +1,2 @@
+# Copy to .dev.vars and replace this value for local development only.
+GEMINI_API_KEY=replace-with-a-local-development-key

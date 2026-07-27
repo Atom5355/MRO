@@ -5,7 +5,7 @@ import 'auth_service.dart';
 
 /// Represents an item in a parts list with quantity
 class ListItem {
-  final String partId;
+  String partId;
   final String itemName;
   final String legacyCode;
   final String description;
@@ -57,9 +57,9 @@ class ListItem {
         quantity: (m['quantity'] as num?)?.toInt() ?? 1,
       );
 
-  factory ListItem.fromPart(MroPart part) {
+  factory ListItem.fromPart(MroPart part, {int quantity = 1}) {
     return ListItem(
-      partId: part.partId,
+      partId: part.stableId,
       itemName: part.itemName,
       legacyCode: part.legacyCode,
       description: part.description,
@@ -68,10 +68,25 @@ class ListItem {
       supplierPartNumber: part.supplierPartNumber,
       location: part.location,
       unitCost: part.unitCost,
+      quantity: quantity,
     );
   }
 
   String get displayName => itemName.isNotEmpty ? itemName : legacyCode;
+
+  /// Matches current stable IDs and the pre-migration item/MPN composite.
+  /// Stored descriptive fields provide a safe fallback for records that were
+  /// once persisted under a non-unique legacy number.
+  bool matchesPart(MroPart part) {
+    if (part.persistenceAliases.contains(partId)) return true;
+
+    final savedItemName = itemName.trim();
+    final savedMpn = manufacturerPartNumber.trim();
+    if (savedItemName.isEmpty && savedMpn.isEmpty) return false;
+
+    return savedItemName == part.itemName.trim() &&
+        savedMpn == part.manufacturerPartNumber.trim();
+  }
 }
 
 /// Represents a user-created parts list
@@ -92,13 +107,14 @@ class PartsList {
         updatedAt = updatedAt ?? DateTime.now(),
         items = items ?? [];
 
-  int get totalQuantity => items.fold(0, (total, item) => total + item.quantity);
+  int get totalQuantity =>
+      items.fold(0, (total, item) => total + item.quantity);
   int get uniqueItemCount => items.length;
   double get totalCost =>
       items.fold(0.0, (total, item) => total + item.lineTotal);
 
   bool containsPart(MroPart part) {
-    return items.any((item) => part.partIds.contains(item.partId));
+    return items.any((item) => item.matchesPart(part));
   }
 
   Map<String, dynamic> toMap() => {
@@ -164,8 +180,7 @@ class ListService extends ChangeNotifier {
       return;
     }
     try {
-      final snap =
-          await _listsRef.orderBy('updatedAt', descending: true).get();
+      final snap = await _listsRef.orderBy('updatedAt', descending: true).get();
       _lists = snap.docs.map((d) => PartsList.fromDoc(d)).toList();
 
       // Set active list if none set
@@ -237,7 +252,8 @@ class ListService extends ChangeNotifier {
   }
 
   /// Add a part to a specific list
-  Future<void> addToList(String listId, MroPart part, {int quantity = 1}) async {
+  Future<void> addToList(String listId, MroPart part,
+      {int quantity = 1}) async {
     if (!_auth.isLoggedIn) {
       debugPrint('[ListService] addToList: user not logged in');
       return;
@@ -245,20 +261,23 @@ class ListService extends ChangeNotifier {
 
     final idx = _lists.indexWhere((l) => l.id == listId);
     if (idx < 0) {
-      debugPrint('[ListService] addToList: list $listId not found in local state');
+      debugPrint(
+          '[ListService] addToList: list $listId not found in local state');
       return;
     }
 
     final list = _lists[idx];
-    final partId = part.partId;
+    final partId = part.stableId;
 
     final existingIdx = list.items.indexWhere(
-      (item) => part.partIds.contains(item.partId) || item.partId == partId,
+      (item) => item.matchesPart(part),
     );
     if (existingIdx >= 0) {
       list.items[existingIdx].quantity += quantity;
+      // Migrate an old persisted alias the next time this list is saved.
+      list.items[existingIdx].partId = partId;
     } else {
-      list.items.add(ListItem.fromPart(part));
+      list.items.add(ListItem.fromPart(part, quantity: quantity));
     }
     list.updatedAt = DateTime.now();
 
@@ -298,8 +317,7 @@ class ListService extends ChangeNotifier {
     final idx = _lists.indexWhere((l) => l.id == listId);
     if (idx < 0) return;
 
-    final itemIdx =
-        _lists[idx].items.indexWhere((i) => i.partId == partId);
+    final itemIdx = _lists[idx].items.indexWhere((i) => i.partId == partId);
     if (itemIdx < 0) return;
 
     if (quantity <= 0) {
@@ -323,9 +341,8 @@ class ListService extends ChangeNotifier {
   int getQuantityInActiveList(MroPart part) {
     final list = activeList;
     if (list == null) return 0;
-    final item = list.items
-        .where((listItem) => part.partIds.contains(listItem.partId))
-        .firstOrNull;
+    final item =
+        list.items.where((listItem) => listItem.matchesPart(part)).firstOrNull;
     return item?.quantity ?? 0;
   }
 
@@ -333,9 +350,10 @@ class ListService extends ChangeNotifier {
   int getQuantityInList(String listId, MroPart part) {
     final idx = _lists.indexWhere((l) => l.id == listId);
     if (idx < 0) return 0;
-    final item = _lists[idx].items
-      .where((listItem) => part.partIds.contains(listItem.partId))
-      .firstOrNull;
+    final item = _lists[idx]
+        .items
+        .where((listItem) => listItem.matchesPart(part))
+        .firstOrNull;
     return item?.quantity ?? 0;
   }
 
@@ -365,7 +383,8 @@ class ListService extends ChangeNotifier {
     final list = _lists[idx];
     final itemMaps = list.items.map((i) => i.toMap()).toList();
 
-    debugPrint('[ListService] _saveList: saving ${itemMaps.length} items to list "${list.name}" ($listId)');
+    debugPrint(
+        '[ListService] _saveList: saving ${itemMaps.length} items to list "${list.name}" ($listId)');
 
     try {
       final docRef = _firestore
@@ -381,7 +400,8 @@ class ListService extends ChangeNotifier {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: false));
 
-      debugPrint('[ListService] _saveList: SUCCESS — ${itemMaps.length} items written');
+      debugPrint(
+          '[ListService] _saveList: SUCCESS — ${itemMaps.length} items written');
     } catch (e, stack) {
       debugPrint('[ListService] _saveList ERROR: $e');
       debugPrint('[ListService] Stack: $stack');

@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
 import '../services/mro_data_service.dart';
 import '../services/advanced_search_service.dart';
-import '../services/ai_search_service.dart' show AISearchService, TokenUsage;
+import '../services/ai_search_service.dart'
+    show AISearchResultKind, AISearchService, TokenUsage;
+import '../services/part_filter_service.dart';
 import '../services/list_service.dart';
 import '../services/auth_service.dart';
 import 'lists_screen.dart';
@@ -41,12 +43,14 @@ class _SearchScreenState extends State<SearchScreen>
   final AdvancedSearchService _searchService = AdvancedSearchService();
   final TextEditingController _searchController = TextEditingController();
   final AISearchService _aiSearchService = AISearchService();
+  final PartFilterService _filterService = const PartFilterService();
   final ListService _listService = ListService();
   final AuthService _authService = AuthService();
 
   // ── State ─────────────────────────────────────────────────────────────
   List<SearchResult> _searchResults = [];
   List<SearchResult> _filteredResults = [];
+  List<SearchResult> _allPartResults = [];
   bool _isLoading = true;
   bool _isSearching = false;
   String? _error;
@@ -54,6 +58,8 @@ class _SearchScreenState extends State<SearchScreen>
   bool _useAI = true;
   String? _aiInterpretation;
   TokenUsage? _tokenUsage;
+  AISearchResultKind? _lastSearchKind;
+  String? _aiFallbackMessage;
 
   // Filter state
   bool _filterDrawerOpen = false;
@@ -166,13 +172,20 @@ class _SearchScreenState extends State<SearchScreen>
       });
       return;
     }
+    _allPartResults = _dataService.parts
+        .map(
+          (part) => SearchResult(
+            part: part,
+            score: 0,
+            matchReasons: const [],
+          ),
+        )
+        .toList(growable: false);
     setState(() {
       _isLoading = false;
-      _searchResults = _dataService.parts
-          .map((p) => SearchResult(part: p, score: 1.0, matchReasons: []))
-          .toList();
-      _applyFilters();
+      _searchResults = _allPartResults;
     });
+    _applyFilters();
   }
 
   void _playSound(String type) {
@@ -209,52 +222,20 @@ class _SearchScreenState extends State<SearchScreen>
 
   // ── Filter logic ──────────────────────────────────────────────────────
 
+  PartFilterState get _filterState => PartFilterState(
+        selectedWPartNumbers: _selectedWPartNumbers,
+        selectedManufacturers: _selectedManufacturers,
+        selectedLegacyCodes: _selectedLegacyCodes,
+        textFilters: {
+          for (final entry in _activeFilters.entries)
+            entry.key: entry.value.toSet(),
+        },
+      );
+
   void _applyFilters() {
-    List<SearchResult> results = List.from(_searchResults);
-    if (_selectedManufacturers.isNotEmpty) {
-      results = results
-          .where((r) => _selectedManufacturers.contains(r.part.manufacturer))
-          .toList();
-    }
-    if (_selectedLegacyCodes.isNotEmpty) {
-      results = results
-          .where((r) => _selectedLegacyCodes.contains(r.part.legacyCode))
-          .toList();
-    }
-    if (_selectedWPartNumbers.isNotEmpty) {
-      results = results
-          .where((r) => _selectedWPartNumbers.contains(r.part.wPartNumber))
-          .toList();
-    }
-    for (final entry in _activeFilters.entries) {
-      final field = entry.key;
-      final tags = entry.value;
-      if (tags.isEmpty) continue;
-      results = results.where((r) {
-        final v = _getFieldValue(r.part, field).toLowerCase();
-        return tags.every((t) => v.contains(t.toLowerCase()));
-      }).toList();
-    }
-    setState(() => _filteredResults = results);
-  }
-
-  Set<String> _extractWPartNumbers(MroPart part) {
-    final wPartNumber = part.wPartNumber;
-    return wPartNumber.isEmpty ? const <String>{} : {wPartNumber};
-  }
-
-  String _getFieldValue(MroPart part, String field) {
-    switch (field) {
-      case 'description':
-        return part.description;
-      case 'manufacturer':
-        return part.manufacturer;
-      case 'manufacturerPartNumber':
-        return part.manufacturerPartNumber;
-      case 'location':
-        return part.location;
-      default:
-        return '';
+    final results = _filterService.apply(_searchResults, _filterState);
+    if (mounted) {
+      setState(() => _filteredResults = results);
     }
   }
 
@@ -323,73 +304,102 @@ class _SearchScreenState extends State<SearchScreen>
 
   // ── Search logic ──────────────────────────────────────────────────────
 
-  Future<void> _confirmAndSearch(String query) async {
-    if (_totalActiveFilters > 0) {
-      final shouldClear = await showDialog<bool>(
-        context: context,
-        builder: (_) => _buildClearFiltersDialog(),
-      );
-      if (shouldClear == true) {
-        _clearAllFilters();
-      } else if (shouldClear == null) {
-        return;
-      }
-    }
-    _performSearch(query);
-  }
+  Future<void> _confirmAndSearch(String query) => _performSearch(query);
 
   Future<void> _performSearch(String query) async {
     if (_isSearching) return;
+    final trimmedQuery = query.trim();
     _playSound('search');
     setState(() {
       _isSearching = true;
-      _hasSearched = query.isNotEmpty;
+      _hasSearched = trimmedQuery.isNotEmpty;
       _aiInterpretation = null;
       _tokenUsage = null;
+      _lastSearchKind = null;
+      _aiFallbackMessage = null;
     });
     try {
-      if (query.isEmpty) {
+      if (trimmedQuery.isEmpty) {
         setState(() {
-          _searchResults = _dataService.parts
-              .map((p) => SearchResult(part: p, score: 1.0, matchReasons: []))
-              .toList();
+          _searchResults = _allPartResults;
           _aiInterpretation = null;
+          _lastSearchKind = null;
         });
-      } else if (_useAI && _aiSearchService.isAvailable) {
-        final result = await _aiSearchService.search(_dataService.parts, query);
+      } else if (_useAI) {
+        final aiCandidatePool = _totalActiveFilters == 0
+            ? null
+            : _filterService
+                .apply(_allPartResults, _filterState)
+                .map((result) => result.part);
+        final result = await _aiSearchService.search(
+          _dataService.parts,
+          trimmedQuery,
+          aiCandidatePool: aiCandidatePool,
+          searchIndex: _dataService.searchIndex,
+        );
+        if (!mounted) return;
         setState(() {
           _searchResults = result.results;
-          if (result.aiInterpretation != null) {
-            _aiInterpretation = result.aiInterpretation!.interpretation;
-          }
+          _aiInterpretation = result.aiInterpretation?.interpretation ??
+              _searchService.describeQuery(
+                trimmedQuery,
+                resultCount: result.results.length,
+                index: _dataService.searchIndex,
+              );
           _tokenUsage = result.tokenUsage;
+          _lastSearchKind = result.kind;
+          _aiFallbackMessage = result.usedFallback
+              ? 'AI unavailable—showing local results.'
+              : null;
         });
       } else {
-        final localResults = _searchService.search(_dataService.parts, query);
+        final localResults = _searchService.search(
+          _dataService.parts,
+          trimmedQuery,
+          index: _dataService.searchIndex,
+        );
         setState(() {
           _searchResults = localResults;
           _aiInterpretation = _searchService.describeQuery(
-            query,
+            trimmedQuery,
             resultCount: localResults.length,
+            index: _dataService.searchIndex,
           );
+          _lastSearchKind = localResults.isNotEmpty &&
+                  localResults.every(
+                    (result) => result.kind == SearchResultKind.exact,
+                  )
+              ? AISearchResultKind.exact
+              : AISearchResultKind.local;
         });
       }
       _applyFilters();
       _playSound('success');
-    } catch (e) {
-      final fallbackResults = _searchService.search(_dataService.parts, query);
+    } on Object {
+      final fallbackResults = _searchService.search(
+        _dataService.parts,
+        trimmedQuery,
+        index: _dataService.searchIndex,
+      );
+      if (!mounted) return;
       setState(() {
         _searchResults = fallbackResults;
-        _aiInterpretation = query.isEmpty
+        _aiInterpretation = trimmedQuery.isEmpty
             ? null
             : _searchService.describeQuery(
-                query,
+                trimmedQuery,
                 resultCount: fallbackResults.length,
+                index: _dataService.searchIndex,
               );
+        _lastSearchKind = AISearchResultKind.fallback;
+        _aiFallbackMessage =
+            _useAI ? 'AI unavailable—showing local results.' : null;
       });
       _applyFilters();
     } finally {
-      setState(() => _isSearching = false);
+      if (mounted) {
+        setState(() => _isSearching = false);
+      }
     }
   }
 
@@ -407,6 +417,7 @@ class _SearchScreenState extends State<SearchScreen>
             children: [
               _buildTopNavBar(),
               if (_aiInterpretation != null) _buildAIBanner(),
+              if (_aiFallbackMessage != null) _buildAIFallbackBanner(),
               if (_tokenUsage != null && _useAI) _buildTokenRow(),
               Expanded(child: _buildBody()),
             ],
@@ -657,14 +668,40 @@ class _SearchScreenState extends State<SearchScreen>
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: Row(
         children: [
-          Icon(_useAI ? Icons.psychology : Icons.tune,
-              size: 12, color: _accent),
+          Icon(
+            _lastSearchKind == AISearchResultKind.ai
+                ? Icons.psychology
+                : Icons.tune,
+            size: 12,
+            color: _accent,
+          ),
           const SizedBox(width: 6),
           Expanded(
               child: Text(_aiInterpretation!,
                   style: const TextStyle(fontSize: 10, color: _text),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAIFallbackBanner() {
+    return Container(
+      color: Colors.orange.withValues(alpha: 0.10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off, size: 12, color: Colors.orange),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              _aiFallbackMessage!,
+              style: const TextStyle(fontSize: 10, color: _text),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );
@@ -681,6 +718,9 @@ class _SearchScreenState extends State<SearchScreen>
               style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('OUT ${_tokenUsage!.outputTokens.toStringAsFixed(0)}',
+              style: const TextStyle(fontSize: 15, color: _textDim)),
+          _divider(),
+          Text('THINK ${_tokenUsage!.thoughtTokens.toStringAsFixed(0)}',
               style: const TextStyle(fontSize: 15, color: _textDim)),
           _divider(),
           Text('\$${_tokenUsage!.cost.toStringAsFixed(4)}',
@@ -762,8 +802,14 @@ class _SearchScreenState extends State<SearchScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 color: _accentDim.withValues(alpha: 0.2),
-                child: const Text('RANKED',
-                    style: TextStyle(
+                child: Text(
+                    switch (_lastSearchKind) {
+                      AISearchResultKind.ai => 'AI RANKED',
+                      AISearchResultKind.exact => 'EXACT MATCH',
+                      AISearchResultKind.fallback => 'LOCAL FALLBACK',
+                      _ => 'LOCAL',
+                    },
+                    style: const TextStyle(
                         fontSize: 8,
                         color: _accent,
                         fontWeight: FontWeight.w700,
@@ -795,8 +841,7 @@ class _SearchScreenState extends State<SearchScreen>
                 itemCount: _filteredResults.length,
                 itemBuilder: (context, index) {
                   final r = _filteredResults[index];
-                  return _gridCard(
-                      r.part, r.score, r.matchReasons, _hasSearched, index);
+                  return _gridCard(r, _hasSearched, index);
                 },
               );
             },
@@ -808,8 +853,13 @@ class _SearchScreenState extends State<SearchScreen>
 
   // ── Grid card ─────────────────────────────────────────────────────────
 
-  Widget _gridCard(MroPart part, double score, List<String> matchReasons,
-      bool showRelevance, int index) {
+  Widget _gridCard(
+    SearchResult result,
+    bool showRelevance,
+    int index,
+  ) {
+    final part = result.part;
+    final resultColor = _resultColor(result);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
       duration: Duration(milliseconds: 150 + (index * 20).clamp(0, 200)),
@@ -830,7 +880,7 @@ class _SearchScreenState extends State<SearchScreen>
             if (showRelevance)
               Container(
                 height: 2,
-                color: _scoreColor(score),
+                color: resultColor,
               ),
             // Body
             Expanded(
@@ -872,24 +922,24 @@ class _SearchScreenState extends State<SearchScreen>
                               color: _text.withValues(alpha: 0.6),
                               height: 1.35)),
                     ],
-                    // AI match reasons
-                    if (showRelevance && matchReasons.isNotEmpty) ...[
+                    // Match reasons
+                    if (showRelevance && result.matchReasons.isNotEmpty) ...[
                       const SizedBox(height: 5),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 4),
                         decoration: BoxDecoration(
                           border: Border(
-                              left: BorderSide(color: _accent, width: 2)),
-                          color: _accent.withValues(alpha: 0.06),
+                              left: BorderSide(color: resultColor, width: 2)),
+                          color: resultColor.withValues(alpha: 0.06),
                         ),
                         child: Text(
-                          matchReasons.take(3).join(' · '),
+                          result.matchReasons.take(3).join(' · '),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 10,
-                              color: _accent,
+                              color: resultColor,
                               fontWeight: FontWeight.w500,
                               height: 1.3),
                         ),
@@ -928,11 +978,11 @@ class _SearchScreenState extends State<SearchScreen>
                                 fontWeight: FontWeight.w700)),
                       const Spacer(),
                       if (showRelevance)
-                        Text('${score.toInt()}%',
+                        Text(result.displayLabel,
                             style: TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w700,
-                                color: _scoreColor(score))),
+                                color: resultColor)),
                     ]),
                   ],
                 ),
@@ -992,6 +1042,14 @@ class _SearchScreenState extends State<SearchScreen>
     if (score >= 70) return _accent;
     if (score >= 50) return Colors.orange;
     return _textDim;
+  }
+
+  Color _resultColor(SearchResult result) {
+    return switch (result.kind) {
+      SearchResultKind.exact => const Color(0xFF22C55E),
+      SearchResultKind.ai => _scoreColor(result.displayRelevance ?? 0),
+      SearchResultKind.local => _textDim,
+    };
   }
 
   // ── Filter drawer ─────────────────────────────────────────────────────
@@ -1170,26 +1228,11 @@ class _SearchScreenState extends State<SearchScreen>
   // ── Available options helpers ─────────────────────────────────────────
 
   List<String> _availableWParts() {
-    var r = List<SearchResult>.from(_searchResults);
-    if (_selectedManufacturers.isNotEmpty) {
-      r = r
-          .where((x) => _selectedManufacturers.contains(x.part.manufacturer))
-          .toList();
-    }
-    if (_selectedLegacyCodes.isNotEmpty) {
-      r = r
-          .where((x) => _selectedLegacyCodes.contains(x.part.legacyCode))
-          .toList();
-    }
-    for (final e in _activeFilters.entries) {
-      if (e.value.isEmpty) continue;
-      r = r.where((x) {
-        final v = _getFieldValue(x.part, e.key).toLowerCase();
-        return e.value.every((t) => v.contains(t.toLowerCase()));
-      }).toList();
-    }
-    final all = r.expand((x) => _extractWPartNumbers(x.part)).toSet().toList()
-      ..sort();
+    final all = _filterService.options(
+      _searchResults,
+      _filterState,
+      PartFilterFacet.wPartNumber,
+    );
     if (_wPartNumberSearchQuery.isEmpty) return all;
     return all
         .where((w) =>
@@ -1198,20 +1241,11 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   List<String> _availableManufacturers() {
-    var r = List<SearchResult>.from(_searchResults);
-    for (final e in _activeFilters.entries) {
-      if (e.value.isEmpty) continue;
-      r = r.where((x) {
-        final v = _getFieldValue(x.part, e.key).toLowerCase();
-        return e.value.every((t) => v.contains(t.toLowerCase()));
-      }).toList();
-    }
-    final all = r
-        .map((x) => x.part.manufacturer)
-        .where((m) => m.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final all = _filterService.options(
+      _searchResults,
+      _filterState,
+      PartFilterFacet.manufacturer,
+    );
     if (_manufacturerSearchQuery.isEmpty) return all;
     return all
         .where((m) =>
@@ -1220,25 +1254,11 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   List<String> _availableLegacyCodes() {
-    var r = List<SearchResult>.from(_searchResults);
-    if (_selectedManufacturers.isNotEmpty) {
-      r = r
-          .where((x) => _selectedManufacturers.contains(x.part.manufacturer))
-          .toList();
-    }
-    for (final e in _activeFilters.entries) {
-      if (e.value.isEmpty) continue;
-      r = r.where((x) {
-        final v = _getFieldValue(x.part, e.key).toLowerCase();
-        return e.value.every((t) => v.contains(t.toLowerCase()));
-      }).toList();
-    }
-    final all = r
-        .map((x) => x.part.legacyCode)
-        .where((m) => m.isNotEmpty)
-        .toSet()
-        .toList()
-      ..sort();
+    final all = _filterService.options(
+      _searchResults,
+      _filterState,
+      PartFilterFacet.legacyCode,
+    );
     if (_legacyCodeSearchQuery.isEmpty) return all;
     return all
         .where((m) =>
@@ -1596,62 +1616,6 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   // ── Clear filters dialog ──────────────────────────────────────────────
-
-  Widget _buildClearFiltersDialog() {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 360),
-        color: _surfaceRaised,
-        padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            color: _accent,
-            child:
-                const Icon(Icons.filter_alt_off, color: Colors.white, size: 20),
-          ),
-          const SizedBox(height: 14),
-          const Text('Clear Filters?',
-              style: TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.w700, color: _text)),
-          const SizedBox(height: 6),
-          Text(
-              '$_totalActiveFilters active filter${_totalActiveFilters == 1 ? '' : 's'}',
-              style: const TextStyle(fontSize: 11, color: _textDim)),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(
-                child: _dlgBtn('Cancel', Colors.transparent, _textDim,
-                    () => Navigator.pop(context))),
-            const SizedBox(width: 6),
-            Expanded(
-                child: _dlgBtn('Keep', _border, _text,
-                    () => Navigator.pop(context, false))),
-            const SizedBox(width: 6),
-            Expanded(
-                child: _dlgBtn('Clear', _accent, Colors.white,
-                    () => Navigator.pop(context, true))),
-          ]),
-        ]),
-      ),
-    );
-  }
-
-  Widget _dlgBtn(String text, Color bg, Color fg, VoidCallback onTap) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration:
-            BoxDecoration(color: bg, border: Border.all(color: _border)),
-        child: Center(
-            child: Text(text,
-                style: TextStyle(
-                    fontSize: 10, color: fg, fontWeight: FontWeight.w600))),
-      ),
-    );
-  }
 
   // ── Toast notification ────────────────────────────────────────────────
 

@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
+import 'mro_search_index.dart';
+import 'search_text_utils.dart';
 
 /// Service for loading and searching MRO parts data from Excel file
 class MroDataService {
@@ -14,9 +16,18 @@ class MroDataService {
     'Item Description',
     'Description',
   ];
+  static const List<String> legacyColumnAliases = [
+    'Legacy #',
+    'Legacy Code',
+    'Legacy Number',
+    'Legacy Part Number',
+  ];
   static const Set<String> _excludedColumns = {
     'location',
+    'legacy',
     'legacycode',
+    'legacynumber',
+    'legacypartnumber',
     'itemname',
     'min',
     'max',
@@ -45,10 +56,12 @@ class MroDataService {
 
   List<MroPart> _parts = [];
   List<String> _columnHeaders = [];
+  MroSearchIndex? _searchIndex;
   bool _isLoaded = false;
 
   List<MroPart> get parts => _parts;
   List<String> get columnHeaders => _columnHeaders;
+  MroSearchIndex? get searchIndex => _searchIndex;
   bool get isLoaded => _isLoaded;
 
   /// Load MRO data from the Excel file with progress callback
@@ -79,6 +92,8 @@ class MroDataService {
       if (data.isNotEmpty) {
         _columnHeaders = data.first.keys.toList();
       }
+
+      validateHeaders(_columnHeaders);
 
       // Define exact column mappings based on MRO file structure.
       // The primary description header may be either Item Description or Description.
@@ -112,6 +127,9 @@ class MroDataService {
         }
       }
 
+      _searchIndex = MroSearchIndex.build(_parts);
+      _parts = _searchIndex!.parts;
+
       onProgress?.call(1.0, 'Loading complete!');
       _isLoaded = true;
     } catch (e) {
@@ -122,7 +140,15 @@ class MroDataService {
   /// Search parts by query string
   List<MroPart> search(String query) {
     if (query.trim().isEmpty) return _parts;
-    return _parts.where((part) => part.matchesSearch(query)).toList();
+    final index = _searchIndex ?? MroSearchIndex.build(_parts);
+    final exactMatches = index.exactIdentifierMatches(query);
+    if (exactMatches.isNotEmpty) return exactMatches;
+
+    final normalizedQuery = normalizeSearchText(query);
+    return index.entries
+        .where((entry) => entry.searchableText.contains(normalizedQuery))
+        .map((entry) => entry.part)
+        .toList(growable: false);
   }
 
   Future<String> _resolveExcelFileName() async {
@@ -162,6 +188,33 @@ class MroDataService {
     return _instance._parsePartRow(row);
   }
 
+  /// Validate the identifier-bearing columns before parsing thousands of rows.
+  @visibleForTesting
+  static void validateHeaders(Iterable<String> headers) {
+    final normalizedHeaders = headers.map(_normalizeColumnName).toSet();
+    final missing = <String>[];
+
+    if (!normalizedHeaders.contains(_normalizeColumnName('Item Name'))) {
+      missing.add('"Item Name"');
+    }
+
+    final hasLegacyHeader = legacyColumnAliases
+        .map(_normalizeColumnName)
+        .any(normalizedHeaders.contains);
+    if (!hasLegacyHeader) {
+      missing.add(
+        'one of ${legacyColumnAliases.map((value) => '"$value"').join(', ')}',
+      );
+    }
+
+    if (missing.isNotEmpty) {
+      throw FormatException(
+        'Workbook schema error: missing required identifier '
+        'column${missing.length == 1 ? '' : 's'} ${missing.join(' and ')}.',
+      );
+    }
+  }
+
   MroPart _parsePartRow(Map<String, dynamic> row) {
     final mainDescription = _getFirstNonEmptyString(
       row,
@@ -181,7 +234,7 @@ class MroDataService {
 
     return MroPart(
       location: _getString(row, 'Location'),
-      legacyCode: _getString(row, 'Legacy Code'),
+      legacyCode: _getFirstNonEmptyString(row, legacyColumnAliases),
       itemName: _getString(row, 'Item Name'),
       min: _getInt(row, 'Min'),
       max: _getInt(row, 'Max'),
@@ -235,8 +288,8 @@ class MroDataService {
     return str;
   }
 
-  String _normalizeColumnName(String column) {
-    return column.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+  static String _normalizeColumnName(String column) {
+    return column.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
   }
 
   int _getInt(Map<String, dynamic> row, String column) {

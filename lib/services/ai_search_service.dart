@@ -1,263 +1,457 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:developer' as developer;
+
 import 'package:http/http.dart' as http;
+
 import '../models/mro_part.dart';
 import 'advanced_search_service.dart';
+import 'mro_search_index.dart';
 
-/// Gemini API Key - Available to all users
-const String geminiApiKey = 'AIzaSyC1fKH3M1kaEH-0KCDHuoQg-0MJu6ZpJwc';
+/// Public Worker endpoint injected at build time with:
+/// `--dart-define=AI_SEARCH_ENDPOINT=https://.../v1/rank`.
+const String configuredAISearchEndpoint = String.fromEnvironment(
+  'AI_SEARCH_ENDPOINT',
+);
+const bool _isReleaseMode = bool.fromEnvironment('dart.vm.product');
 
-/// Helper class to return both results and token usage from AI ranking
-class _RankingResult {
-  final List<SearchResult> results;
-  final TokenUsage? tokenUsage;
+// A const-constructor assertion is evaluated by the release compiler. This
+// makes an ordinary `flutter build web --release` fail at compile time when the
+// public Worker URL was not injected, while debug builds and tests remain able
+// to exercise the explicit local-fallback path.
+const _aiSearchReleaseConfiguration = _AISearchReleaseConfiguration(
+  configuredAISearchEndpoint,
+);
 
-  _RankingResult(this.results, this.tokenUsage);
+class _AISearchReleaseConfiguration {
+  final String endpoint;
+
+  const _AISearchReleaseConfiguration(this.endpoint)
+      : assert(
+          !_isReleaseMode || endpoint != '',
+          'AI_SEARCH_ENDPOINT is required for release builds. Pass '
+          '--dart-define=AI_SEARCH_ENDPOINT=https://<worker>/v1/rank.',
+        );
 }
 
-/// AI-powered search service using Google Gemini
-/// Gemini directly evaluates and ranks parts - not just keyword extraction
+/// AI-assisted ranking that never sends credentials from the Flutter client.
+///
+/// The complete local result pool is always retained. Only the first 250
+/// locally selected records from [aiCandidatePool] are sent to the Worker, and
+/// validated AI results are merged ahead of the remaining local matches.
 class AISearchService {
-  final AdvancedSearchService _localSearch = AdvancedSearchService();
-  static const String _modelId = 'gemini-3.6-flash';
-  static const String _systemInstruction =
-      'Use high thinking effort for ranking accuracy. Reason carefully and prioritize precise technical matching to find the correct part number or equivelent functional replacement for its use case scenario whenever and wherever possible';
+  static const int _maximumQueryLength = 500;
+  static const int _maximumCandidates = 250;
+  static const int _maximumRequestBytes = 256 * 1024;
 
-  bool _initialized = false;
+  final AdvancedSearchService _localSearch;
+  final AdvancedSearchService _candidateSearch;
+  final http.Client _client;
+  final Duration timeout;
+  final Uri? _endpoint;
 
-  AISearchService() {
-    if (geminiApiKey.isNotEmpty) {
-      _initialized = true;
+  AISearchService({
+    http.Client? client,
+    AdvancedSearchService? localSearch,
+    String? endpoint,
+    this.timeout = const Duration(seconds: 30),
+  })  : _client = client ?? http.Client(),
+        _localSearch = localSearch ?? AdvancedSearchService(),
+        _candidateSearch = AdvancedSearchService(),
+        _endpoint = _parseEndpoint(
+          endpoint ?? _aiSearchReleaseConfiguration.endpoint,
+        );
+
+  bool get isAvailable => _endpoint != null;
+
+  /// Searches all [parts] locally, then asks the Worker to rank only the
+  /// filtered [aiCandidatePool] (or all parts when it is omitted).
+  ///
+  /// Exact W/item, legacy, manufacturer-part, or supplier-part queries are
+  /// resolved locally and never incur an AI request.
+  Future<AISearchResult> search(
+    List<MroPart> parts,
+    String query, {
+    Iterable<MroPart>? aiCandidatePool,
+    MroSearchIndex? searchIndex,
+  }) async {
+    final trimmedQuery = query.trim();
+
+    if (trimmedQuery.isEmpty) {
+      return AISearchResult.local(
+        results: _localSearch.search(
+          parts,
+          trimmedQuery,
+          index: searchIndex,
+        ),
+      );
     }
-  }
 
-  bool get isAvailable => _initialized && geminiApiKey.isNotEmpty;
+    final exactMatches = _localSearch.exactIdentifierMatches(
+      parts,
+      trimmedQuery,
+      index: searchIndex,
+    );
+    if (exactMatches.isNotEmpty) {
+      return AISearchResult.exact(
+        results: exactMatches
+            .map(
+              (part) => SearchResult(
+                part: part,
+                score: 100,
+                matchReasons: const ['EXACT'],
+                kind: SearchResultKind.exact,
+              ),
+            )
+            .toList(growable: false),
+      );
+    }
 
-  /// Main AI-powered search - Gemini directly ranks parts
-  Future<AISearchResult> search(List<MroPart> parts, String query) async {
+    // This pool is deliberately based on all records, not the currently
+    // filtered subset. The UI can therefore re-filter it without another call.
+    final localResults = _localSearch.search(
+      parts,
+      trimmedQuery,
+      index: searchIndex,
+    );
+
+    if (trimmedQuery.length > _maximumQueryLength) {
+      return AISearchResult.fallback(
+        results: localResults,
+        error:
+            'AI search queries are limited to $_maximumQueryLength characters.',
+      );
+    }
+
     if (!isAvailable) {
-      final results = _localSearch.search(parts, query);
-      return AISearchResult(
-        results: results,
-        aiInterpretation: null,
-        usedAI: false,
+      return AISearchResult.fallback(
+        results: localResults,
+        error: 'AI search is not configured; showing local results.',
+      );
+    }
+
+    final candidateSource = aiCandidatePool?.toList(growable: false) ?? parts;
+    final candidates = _candidateSearch
+        .searchCandidates(
+          candidateSource,
+          trimmedQuery,
+          minimumScore: 8,
+          limit: _maximumCandidates,
+          index: aiCandidatePool == null ? searchIndex : null,
+        )
+        .map((result) => result.part)
+        .toList(growable: false);
+
+    if (candidates.isEmpty) {
+      return AISearchResult.local(
+        results: localResults,
+        interpretation: 'No matching parts found',
       );
     }
 
     try {
-      // Step 1: Pre-filter to get candidate parts (fast local filtering)
-      final candidates = _preFilterCandidates(parts, query);
+      final request = _buildRequest(trimmedQuery, candidates);
+      final response = await _client
+          .post(
+            _endpoint!,
+            headers: const {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json',
+            },
+            body: request.body,
+          )
+          .timeout(timeout);
 
-      if (candidates.isEmpty) {
-        return AISearchResult(
-          results: [],
-          aiInterpretation: SearchIntent(
-            interpretation: 'No matching parts found',
-          ),
-          usedAI: true,
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw const _AISearchTransportException(
+          'AI ranking is temporarily unavailable.',
         );
       }
 
-      // Step 2: Let Gemini rank the candidates
-      final rankingResult = await _aiRankParts(query, candidates);
-
-      // Extract interpretation from first result if available
-      String? interpretation;
-      if (rankingResult.results.isNotEmpty &&
-          rankingResult.results.first.matchReasons.isNotEmpty) {
-        interpretation =
-            'Found ${rankingResult.results.length} matching parts for: $query';
-      }
-
-      return AISearchResult(
-        results: rankingResult.results,
-        aiInterpretation: SearchIntent(interpretation: interpretation),
-        usedAI: true,
-        tokenUsage: rankingResult.tokenUsage,
+      final workerResult = _parseWorkerResponse(
+        response.body,
+        request.candidates,
       );
-    } catch (e) {
-      developer.log('AI search error: $e', name: 'AISearchService');
-      final results = _localSearch.search(parts, query);
-      return AISearchResult(
-        results: results,
-        aiInterpretation: null,
-        usedAI: false,
-        error: e.toString(),
+      final rankedPartIds =
+          workerResult.results.map((result) => result.part.stableId).toSet();
+      final mergedResults = <SearchResult>[
+        ...workerResult.results,
+        ...localResults.where(
+          (result) => !rankedPartIds.contains(result.part.stableId),
+        ),
+      ];
+
+      return AISearchResult.ai(
+        results: mergedResults,
+        interpretation: workerResult.interpretation,
+        requestId: workerResult.requestId,
+        model: workerResult.model,
+        tokenUsage: workerResult.tokenUsage,
+      );
+    } on TimeoutException {
+      return AISearchResult.fallback(
+        results: localResults,
+        error: 'AI ranking timed out; showing local results.',
+      );
+    } on _AISearchTransportException catch (error) {
+      return AISearchResult.fallback(
+        results: localResults,
+        error: '${error.message} Showing local results.',
+      );
+    } on http.ClientException {
+      return AISearchResult.fallback(
+        results: localResults,
+        error: 'AI ranking is unavailable; showing local results.',
+      );
+    } on FormatException {
+      return AISearchResult.fallback(
+        results: localResults,
+        error:
+            'AI ranking returned an invalid response; showing local results.',
+      );
+    } on Object {
+      // Browser/network implementations can surface platform-specific errors.
+      // Keep the user-facing message provider-neutral and do not log payloads.
+      return AISearchResult.fallback(
+        results: localResults,
+        error: 'AI ranking is unavailable; showing local results.',
       );
     }
   }
 
-  /// Pre-filter parts using basic keyword matching to get candidates
-  List<MroPart> _preFilterCandidates(List<MroPart> parts, String query) {
-    return _localSearch
-        .searchCandidates(parts, query, minimumScore: 8, limit: 250)
-        .map((result) => result.part)
-        .toList();
-  }
+  _WorkerRequest _buildRequest(String query, List<MroPart> candidates) {
+    final encodedCandidates = <Map<String, Object>>[];
+    String? body;
 
-  /// Let Gemini rank and score the candidate parts
-  Future<_RankingResult> _aiRankParts(
-    String query,
-    List<MroPart> candidates,
-  ) async {
-    // Format parts for Gemini
-    final partsJson = candidates.asMap().entries.map((e) {
-      final p = e.value;
-      return {
-        'id': e.key,
-        'code': p.legacyCode,
-        'name': p.itemName,
-        'desc': p.description,
-        'mfg': p.manufacturer,
-        'mpn': p.manufacturerPartNumber,
+    for (final part in candidates.take(_maximumCandidates)) {
+      final candidate = <String, Object>{
+        'id': encodedCandidates.length,
+        'itemNumber': _bounded(part.itemName, 160),
+        'legacyNumber': _bounded(part.legacyCode, 160),
+        'description': _bounded(part.description, 1000),
+        'manufacturer': _bounded(part.manufacturer, 160),
+        'manufacturerPartNumber': _bounded(
+          part.manufacturerPartNumber,
+          160,
+        ),
+        'supplierPartNumber': _bounded(part.supplierPartNumber, 160),
+        'location': _bounded(part.location, 160),
       };
-    }).toList();
+      encodedCandidates.add(candidate);
 
-    final prompt =
-        '''You are an MRO (Maintenance, Repair, Operations) parts search expert.
-
-USER QUERY: "$query"
-
-CANDIDATE PARTS (JSON):
-${jsonEncode(partsJson)}
-
-TASK: Analyze the query and rank these parts by relevance. Consider:
-- Part type match (motor, bearing, belt, chain, etc.)
-- Specifications (HP, RPM, voltage, size, dimensions)
-- Manufacturer preference
-- Shaft size, bore, OD/ID dimensions
-- Application fit
-
-RESPOND WITH JSON ONLY (no markdown):
-{
-  "interpretation": "Brief summary of what user needs",
-  "ranked": [
-    {"id": 0, "score": 95, "reason": "Why this matches"},
-    {"id": 2, "score": 88, "reason": "Why this matches"}
-  ]
-}
-
-Rules:
-- Only include parts that actually match the query intent
-- Score 90-100: Excellent match (meets all criteria)
-- Score 70-89: Good match (meets most criteria)  
-- Score 50-69: Partial match (meets some criteria)
-- Score below 50: Poor match (only include if few good matches)
-- Maximum 50 results
-- Order by score descending''';
-
-    final uri = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$_modelId:generateContent?key=$geminiApiKey',
-    );
-
-    final body = {
-      'system_instruction': {
-        'parts': [
-          {'text': _systemInstruction},
-        ],
-      },
-      'contents': [
-        {
-          'role': 'user',
-          'parts': [
-            {'text': prompt},
-          ],
-        },
-      ],
-      'generationConfig': {
-        'temperature': 0.5,
-        'maxOutputTokens': 60000,
-        'thinkingConfig': {'thinkingLevel': 'high'},
-      },
-    };
-
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode(body),
-    );
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(
-        'Gemini API error (${response.statusCode}): ${response.body}',
-      );
-    }
-
-    final responseJson = jsonDecode(response.body) as Map<String, dynamic>;
-    final candidatesJson = responseJson['candidates'] as List<dynamic>? ?? [];
-    String text = '{}';
-    if (candidatesJson.isNotEmpty) {
-      final firstCandidate = candidatesJson.first as Map<String, dynamic>;
-      final content = firstCandidate['content'] as Map<String, dynamic>?;
-      final parts = content?['parts'] as List<dynamic>? ?? [];
-      final textPart = parts.cast<Map<String, dynamic>?>().firstWhere(
-        (p) => (p?['text'] as String?) != null,
-        orElse: () => null,
-      );
-      text = textPart?['text'] as String? ?? '{}';
-    }
-
-    // Extract token usage
-    TokenUsage? tokenUsage;
-    final usage = responseJson['usageMetadata'] as Map<String, dynamic>?;
-    if (usage != null) {
-      tokenUsage = TokenUsage.fromCounts(
-        (usage['promptTokenCount'] as num?)?.toInt() ?? 0,
-        (usage['candidatesTokenCount'] as num?)?.toInt() ?? 0,
-      );
-    }
-
-    try {
-      String cleanJson = text.trim();
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replaceAll(RegExp(r'^```json?\s*'), '');
-        cleanJson = cleanJson.replaceAll(RegExp(r'\s*```$'), '');
+      final nextBody = jsonEncode({
+        'query': query,
+        'candidates': encodedCandidates,
+      });
+      if (utf8.encode(nextBody).length > _maximumRequestBytes) {
+        encodedCandidates.removeLast();
+        break;
       }
-      cleanJson = cleanJson.trim();
+      body = nextBody;
+    }
 
-      final json = jsonDecode(cleanJson) as Map<String, dynamic>;
-      final ranked = json['ranked'] as List<dynamic>? ?? [];
+    if (encodedCandidates.isEmpty || body == null) {
+      throw const _AISearchTransportException(
+        'AI ranking request is too large.',
+      );
+    }
 
-      final results = <SearchResult>[];
-      for (final item in ranked) {
-        final id = item['id'] as int;
-        if (id >= 0 && id < candidates.length) {
-          results.add(
-            SearchResult(
-              part: candidates[id],
-              score: (item['score'] as num).toDouble(),
-              matchReasons: [item['reason'] as String? ?? 'AI match'],
-            ),
-          );
-        }
+    return _WorkerRequest(
+      body: body,
+      candidates:
+          candidates.take(encodedCandidates.length).toList(growable: false),
+    );
+  }
+
+  _WorkerResult _parseWorkerResponse(
+    String responseBody,
+    List<MroPart> candidates,
+  ) {
+    final decoded = jsonDecode(responseBody);
+    if (decoded is! Map<String, dynamic>) {
+      throw const FormatException('Expected an object response.');
+    }
+
+    final requestId = _requiredBoundedString(decoded['requestId'], 128);
+    final model = _requiredBoundedString(decoded['model'], 80);
+    if (model != 'gemini-3.6-flash') {
+      throw const FormatException('Unexpected AI model.');
+    }
+
+    final interpretationValue = decoded['interpretation'];
+    if (interpretationValue is! String || interpretationValue.length > 500) {
+      throw const FormatException('Invalid interpretation.');
+    }
+    final interpretation = interpretationValue.trim();
+
+    final rankedValue = decoded['ranked'];
+    if (rankedValue is! List || rankedValue.length > 50) {
+      throw const FormatException('Invalid ranked results.');
+    }
+
+    final ranked = <_ValidatedRank>[];
+    final seenIds = <int>{};
+    for (var position = 0; position < rankedValue.length; position++) {
+      final value = rankedValue[position];
+      if (value is! Map) {
+        continue;
       }
 
-      return _RankingResult(results, tokenUsage);
-    } catch (e) {
-      developer.log(
-        'Failed to parse AI ranking response: $text',
-        name: 'AISearchService',
+      final idValue = value['id'];
+      final relevanceValue = value['relevance'];
+      final reasonValue = value['reason'];
+      if (!_isInteger(idValue) ||
+          !_isInteger(relevanceValue) ||
+          reasonValue is! String ||
+          reasonValue.trim().isEmpty ||
+          reasonValue.length > 300) {
+        continue;
+      }
+
+      final id = (idValue as num).toInt();
+      final relevance = (relevanceValue as num).toInt();
+      if (id < 0 ||
+          id >= candidates.length ||
+          relevance < 0 ||
+          relevance > 100 ||
+          !seenIds.add(id)) {
+        continue;
+      }
+
+      ranked.add(
+        _ValidatedRank(
+          id: id,
+          relevance: relevance,
+          reason: reasonValue.trim(),
+          originalPosition: position,
+        ),
       );
-      // Return candidates with basic ordering
-      final fallbackResults = candidates
-          .asMap()
-          .entries
+    }
+
+    ranked.sort((left, right) {
+      final byRelevance = right.relevance.compareTo(left.relevance);
+      return byRelevance != 0
+          ? byRelevance
+          : left.originalPosition.compareTo(right.originalPosition);
+    });
+
+    final usageValue = decoded['usage'];
+    if (usageValue is! Map) {
+      throw const FormatException('Invalid token usage.');
+    }
+    final tokenUsage = TokenUsage.fromJson(usageValue);
+
+    return _WorkerResult(
+      requestId: requestId,
+      model: model,
+      interpretation: interpretation,
+      results: ranked
           .map(
-            (e) => SearchResult(
-              part: e.value,
-              score: (100 - e.key).toDouble(),
-              matchReasons: ['Keyword match'],
+            (rank) => SearchResult(
+              part: candidates[rank.id],
+              score: rank.relevance.toDouble(),
+              matchReasons: [rank.reason],
+              kind: SearchResultKind.ai,
+              relevance: rank.relevance.toDouble(),
             ),
           )
-          .take(50)
-          .toList();
-      return _RankingResult(fallbackResults, tokenUsage);
+          .toList(growable: false),
+      tokenUsage: tokenUsage,
+    );
+  }
+
+  static Uri? _parseEndpoint(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
     }
+
+    final uri = Uri.tryParse(trimmed);
+    if (uri == null ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
+        uri.host.isEmpty) {
+      return null;
+    }
+    return uri;
+  }
+
+  static String _bounded(String value, int maximumLength) {
+    final trimmed = value.trim();
+    if (trimmed.length <= maximumLength) {
+      return trimmed;
+    }
+
+    // Cloudflare validates JavaScript string lengths (UTF-16 code units).
+    // Build the prefix by code point so truncation never leaves a dangling
+    // surrogate while still honoring the Worker's exact limit.
+    final result = StringBuffer();
+    var length = 0;
+    for (final rune in trimmed.runes) {
+      final runeLength = rune > 0xFFFF ? 2 : 1;
+      if (length + runeLength > maximumLength) break;
+      result.writeCharCode(rune);
+      length += runeLength;
+    }
+    return result.toString();
+  }
+
+  static bool _isInteger(Object? value) {
+    return value is num && value.isFinite && value == value.roundToDouble();
+  }
+
+  static String _requiredBoundedString(Object? value, int maximumLength) {
+    if (value is! String ||
+        value.trim().isEmpty ||
+        value.length > maximumLength) {
+      throw const FormatException('Invalid string field.');
+    }
+    return value.trim();
   }
 }
 
-/// Structured search intent extracted by AI
+class _WorkerRequest {
+  final String body;
+  final List<MroPart> candidates;
+
+  const _WorkerRequest({required this.body, required this.candidates});
+}
+
+class _ValidatedRank {
+  final int id;
+  final int relevance;
+  final String reason;
+  final int originalPosition;
+
+  const _ValidatedRank({
+    required this.id,
+    required this.relevance,
+    required this.reason,
+    required this.originalPosition,
+  });
+}
+
+class _WorkerResult {
+  final String requestId;
+  final String model;
+  final String interpretation;
+  final List<SearchResult> results;
+  final TokenUsage tokenUsage;
+
+  const _WorkerResult({
+    required this.requestId,
+    required this.model,
+    required this.interpretation,
+    required this.results,
+    required this.tokenUsage,
+  });
+}
+
+class _AISearchTransportException implements Exception {
+  final String message;
+
+  const _AISearchTransportException(this.message);
+}
+
+/// Structured search intent retained for compatibility with the search UI.
 class SearchIntent {
   final String? partType;
   final String? manufacturer;
@@ -271,7 +465,7 @@ class SearchIntent {
   final double confidence;
   final String? interpretation;
 
-  SearchIntent({
+  const SearchIntent({
     this.partType,
     this.manufacturer,
     this.material,
@@ -291,15 +485,16 @@ class SearchIntent {
       manufacturer: json['manufacturer'] as String?,
       material: json['material'] as String?,
       partSize: json['partSize'] as String?,
-      dimensions:
-          (json['dimensions'] as List<dynamic>?)
-              ?.map((d) => Map<String, String>.from(d as Map))
+      dimensions: (json['dimensions'] as List<dynamic>?)
+              ?.map((dimension) => Map<String, String>.from(dimension as Map))
               .toList() ??
-          [],
-      specs: Map<String, String>.from(json['specs'] as Map? ?? {}),
-      features: List<String>.from(json['features'] as List? ?? []),
+          const [],
+      specs: Map<String, String>.from(json['specs'] as Map? ?? const {}),
+      features: List<String>.from(json['features'] as List? ?? const []),
       searchSynonyms: List<String>.from(
-        json['searchTerms'] as List? ?? json['searchSynonyms'] as List? ?? [],
+        json['searchTerms'] as List? ??
+            json['searchSynonyms'] as List? ??
+            const [],
       ),
       clarification: json['clarification'] as String?,
       confidence: (json['confidence'] as num?)?.toDouble() ?? 0.5,
@@ -313,47 +508,182 @@ class SearchIntent {
   }
 }
 
-/// Token usage information from AI API
+/// Token usage reported by the Worker for the Gemini 3.6 request.
 class TokenUsage {
+  static const double _inputPricePerMillion = 1.50;
+  static const double _outputPricePerMillion = 7.50;
+
   final int inputTokens;
   final int outputTokens;
+  final int thoughtTokens;
+  final int totalTokens;
   final double cost;
 
-  TokenUsage({
+  double get estimatedCostUsd => cost;
+
+  const TokenUsage({
     required this.inputTokens,
     required this.outputTokens,
+    this.thoughtTokens = 0,
+    int? totalTokens,
     required this.cost,
-  });
+  }) : totalTokens = totalTokens ?? inputTokens + outputTokens + thoughtTokens;
 
-  /// Calculate estimated cost based on configured AI pricing assumptions.
-  /// Input: $0.25 per 1M tokens.
-  /// Output: $1.50 per 1M tokens.
-  factory TokenUsage.fromCounts(int inputTokens, int outputTokens) {
-    final inputCost = (inputTokens / 1000000) * 0.25;
-    final outputCost = (outputTokens / 1000000) * 1.5;
-    final totalCost = inputCost + outputCost;
+  factory TokenUsage.fromCounts(
+    int inputTokens,
+    int outputTokens, {
+    int thoughtTokens = 0,
+    int? totalTokens,
+  }) {
+    if (inputTokens < 0 || outputTokens < 0 || thoughtTokens < 0) {
+      throw const FormatException('Token counts cannot be negative.');
+    }
+    final resolvedTotal =
+        totalTokens ?? inputTokens + outputTokens + thoughtTokens;
+    if (resolvedTotal < inputTokens + outputTokens + thoughtTokens) {
+      throw const FormatException('Invalid total token count.');
+    }
+
+    final inputCost = (inputTokens / 1000000) * _inputPricePerMillion;
+    final outputCost =
+        ((outputTokens + thoughtTokens) / 1000000) * _outputPricePerMillion;
+    return TokenUsage(
+      inputTokens: inputTokens,
+      outputTokens: outputTokens,
+      thoughtTokens: thoughtTokens,
+      totalTokens: resolvedTotal,
+      cost: inputCost + outputCost,
+    );
+  }
+
+  factory TokenUsage.fromJson(Map<dynamic, dynamic> json) {
+    final inputTokens = _nonNegativeInteger(json['inputTokens']);
+    final outputTokens = _nonNegativeInteger(json['outputTokens']);
+    final thoughtTokens = _nonNegativeInteger(json['thoughtTokens']);
+    final totalTokens = _nonNegativeInteger(json['totalTokens']);
+    final costValue = json['estimatedCostUsd'];
+    if (costValue is! num || !costValue.isFinite || costValue < 0) {
+      throw const FormatException('Invalid estimated cost.');
+    }
+    if (totalTokens < inputTokens + outputTokens + thoughtTokens) {
+      throw const FormatException('Invalid total token count.');
+    }
 
     return TokenUsage(
       inputTokens: inputTokens,
       outputTokens: outputTokens,
-      cost: totalCost,
+      thoughtTokens: thoughtTokens,
+      totalTokens: totalTokens,
+      cost: costValue.toDouble(),
     );
+  }
+
+  static int _nonNegativeInteger(Object? value) {
+    if (value is! num ||
+        !value.isFinite ||
+        value != value.roundToDouble() ||
+        value < 0) {
+      throw const FormatException('Invalid token count.');
+    }
+    return value.toInt();
   }
 }
 
-/// Result from AI-powered search
+enum AISearchResultKind { ai, exact, local, fallback }
+
+/// Result from an AI-assisted search, including an explicit fallback state.
 class AISearchResult {
   final List<SearchResult> results;
   final SearchIntent? aiInterpretation;
   final bool usedAI;
+  final bool usedFallback;
+  final bool exactMatch;
   final String? error;
   final TokenUsage? tokenUsage;
+  final String? requestId;
+  final String? model;
+  final AISearchResultKind kind;
 
-  AISearchResult({
+  String? get fallbackMessage =>
+      usedFallback ? 'AI unavailable—showing local results.' : null;
+
+  const AISearchResult({
     required this.results,
     required this.aiInterpretation,
     required this.usedAI,
+    this.usedFallback = false,
+    this.exactMatch = false,
     this.error,
     this.tokenUsage,
-  });
+    this.requestId,
+    this.model,
+    AISearchResultKind? kind,
+  }) : kind = kind ??
+            (usedAI
+                ? AISearchResultKind.ai
+                : usedFallback
+                    ? AISearchResultKind.fallback
+                    : exactMatch
+                        ? AISearchResultKind.exact
+                        : AISearchResultKind.local);
+
+  factory AISearchResult.ai({
+    required List<SearchResult> results,
+    required String interpretation,
+    required String requestId,
+    required String model,
+    required TokenUsage tokenUsage,
+  }) {
+    return AISearchResult(
+      results: results,
+      aiInterpretation: SearchIntent(
+        interpretation: interpretation.isEmpty ? null : interpretation,
+      ),
+      usedAI: true,
+      tokenUsage: tokenUsage,
+      requestId: requestId,
+      model: model,
+      kind: AISearchResultKind.ai,
+    );
+  }
+
+  factory AISearchResult.exact({required List<SearchResult> results}) {
+    return AISearchResult(
+      results: results,
+      aiInterpretation: const SearchIntent(
+        interpretation: 'Exact part-number match',
+      ),
+      usedAI: false,
+      exactMatch: true,
+      kind: AISearchResultKind.exact,
+    );
+  }
+
+  factory AISearchResult.local({
+    required List<SearchResult> results,
+    String? interpretation,
+  }) {
+    return AISearchResult(
+      results: results,
+      aiInterpretation: interpretation == null
+          ? null
+          : SearchIntent(interpretation: interpretation),
+      usedAI: false,
+      kind: AISearchResultKind.local,
+    );
+  }
+
+  factory AISearchResult.fallback({
+    required List<SearchResult> results,
+    required String error,
+  }) {
+    return AISearchResult(
+      results: results,
+      aiInterpretation: null,
+      usedAI: false,
+      usedFallback: true,
+      error: error,
+      kind: AISearchResultKind.fallback,
+    );
+  }
 }
