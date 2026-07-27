@@ -90845,7 +90845,7 @@ a0.$flags=1
 a0=a0
 a=a0}if(a==null)a=a4
 b=b?a7:null
-b=n.b.LC(a,a2,b,250,8)
+b=n.b.LC(a,a2,b,100,8)
 a0=A.U(b).i("W<1,h9>")
 b=A.R(new A.W(b,new A.a09(),a0),a0.i("a4.E"))
 b.$flags=1
@@ -90900,11 +90900,11 @@ case 6:case 1:return A.G(q,r)
 case 2:return A.F(o.at(-1),r)}})
 return A.H($async$wl,r)},
 a70(a,b){var s,r,q,p,o,n,m,l,k,j=A.b([],t.Mq)
-for(s=t.S,r=A.U(b).c,q=A.eU(b,0,A.hZ(250,"count",s),r),p=q.$ti,q=new A.bb(q,q.gC(0),p.i("bb<a4.E>")),o=t.N,n=t.K,p=p.i("a4.E"),m=null;q.n();m=k){l=q.d
+for(s=t.S,r=A.U(b).c,q=A.eU(b,0,A.hZ(100,"count",s),r),p=q.$ti,q=new A.bb(q,q.gC(0),p.i("bb<a4.E>")),o=t.N,n=t.K,p=p.i("a4.E"),m=null;q.n();m=k){l=q.d
 if(l==null)l=p.a(l)
 j.push(A.an(["id",j.length,"itemNumber",A.ti(l.c,160),"legacyNumber",A.ti(l.b,160),"description",A.ti(l.r,1000),"manufacturer",A.ti(l.w,160),"manufacturerPartNumber",A.ti(l.x,160),"supplierPartNumber",A.ti(l.y,160),"location",A.ti(l.a,160)],o,n))
 k=B.cS.WG(A.an(["query",a,"candidates",j],o,n),null)
-if(B.cs.ey(k).length>262144){j.pop()
+if(B.cs.ey(k).length>40960){j.pop()
 break}}q=j.length
 if(q===0||m==null)throw A.e(B.a_5)
 return new A.axX(m,A.eU(b,0,A.hZ(q,"count",s),r).dR(0,!1))},
