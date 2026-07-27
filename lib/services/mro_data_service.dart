@@ -1,11 +1,10 @@
 import 'dart:convert';
-import 'dart:js_interop';
-import 'dart:js_interop_unsafe';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import '../models/mro_part.dart';
 import 'mro_search_index.dart';
 import 'search_text_utils.dart';
+import 'workbook_parser.dart';
 
 /// Service for loading and searching MRO parts data from Excel file
 class MroDataService {
@@ -328,118 +327,7 @@ class MroDataService {
   /// Parse Excel file using SheetJS via JavaScript interop
   Future<List<Map<String, dynamic>>> _parseExcelWithSheetJS(
     List<int> bytes,
-  ) async {
-    try {
-      // Get XLSX from global scope
-      final xlsx = globalContext['XLSX'] as JSObject?;
-      if (xlsx == null) {
-        throw Exception(
-          'SheetJS (XLSX) library not loaded. Make sure the script is included in index.html',
-        );
-      }
-
-      // Create Uint8Array from bytes
-      final jsBytes = bytes.toList(growable: false).jsify() as JSArray;
-      final uint8Array = _createUint8Array(jsBytes);
-
-      // Create options object
-      final options = <String, dynamic>{'type': 'array'}.jsify() as JSObject;
-
-      // Call XLSX.read()
-      final readFn = xlsx['read'] as JSFunction;
-      final workbook =
-          readFn.callAsFunction(xlsx, uint8Array, options) as JSObject?;
-
-      if (workbook == null) {
-        throw Exception('Failed to read workbook');
-      }
-
-      // Get sheet names
-      final sheetNames = workbook['SheetNames'] as JSArray?;
-      if (sheetNames == null || sheetNames.length == 0) {
-        throw Exception('No sheets found in workbook');
-      }
-
-      // Get first sheet
-      final firstSheetName = (sheetNames[0] as JSString).toDart;
-      final sheets = workbook['Sheets'] as JSObject;
-      final sheet = sheets[firstSheetName] as JSObject?;
-
-      if (sheet == null) {
-        throw Exception('Could not read sheet: $firstSheetName');
-      }
-
-      // Get utils and convert to JSON
-      final utils = xlsx['utils'] as JSObject;
-      final sheetToJsonFn = utils['sheet_to_json'] as JSFunction;
-
-      // Options: defval for empty cells
-      final jsonOptions = <String, dynamic>{'defval': ''}.jsify() as JSObject;
-      final jsonData =
-          sheetToJsonFn.callAsFunction(utils, sheet, jsonOptions) as JSArray;
-
-      // Convert to Dart List<Map>
-      final result = <Map<String, dynamic>>[];
-
-      for (int i = 0; i < jsonData.length; i++) {
-        final row = jsonData[i] as JSObject;
-        final map = <String, dynamic>{};
-
-        // Get object keys
-        final keys = _getObjectKeys(row);
-
-        for (final key in keys) {
-          final jsValue = row[key];
-          map[key] = _convertJsValue(jsValue);
-        }
-
-        // Skip completely empty rows
-        if (map.values.any(
-          (v) => v != null && v.toString().trim().isNotEmpty,
-        )) {
-          result.add(map);
-        }
-      }
-
-      return result;
-    } catch (e) {
-      throw Exception('SheetJS parsing error: $e');
-    }
-  }
-
-  List<String> _getObjectKeys(JSObject obj) {
-    final jsKeys = _jsObjectKeys(obj);
-    final keys = <String>[];
-    for (int i = 0; i < jsKeys.length; i++) {
-      keys.add((jsKeys[i] as JSString).toDart);
-    }
-    return keys;
-  }
-
-  dynamic _convertJsValue(JSAny? value) {
-    if (value == null || value.isUndefinedOrNull) {
-      return null;
-    }
-    if (value.isA<JSString>()) {
-      return (value as JSString).toDart;
-    }
-    if (value.isA<JSNumber>()) {
-      final num = (value as JSNumber).toDartDouble;
-      // Return as int if it's a whole number
-      if (num == num.truncateToDouble()) {
-        return num.toInt();
-      }
-      return num;
-    }
-    if (value.isA<JSBoolean>()) {
-      return (value as JSBoolean).toDart;
-    }
-    return value.toString();
+  ) {
+    return parseExcelWorkbook(bytes);
   }
 }
-
-@JS('Uint8Array.from')
-external JSObject _createUint8Array(JSArray array);
-
-@JS('Object.keys')
-external JSArray _jsObjectKeys(JSObject obj);
