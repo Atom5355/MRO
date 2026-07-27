@@ -10,9 +10,10 @@ receives or sends a Gemini API key.
 - The workbook is loaded in Flutter and indexed locally. Exact W/item, legacy,
   manufacturer-part, and supplier-part identifiers are resolved locally.
 - Filters run locally and can be changed without another AI request.
-- For a natural-language query, at most 250 locally selected candidates are
-  sent to the Worker. AI-ranked rows are placed first and the remaining local
-  matches are retained.
+- For a natural-language query, the app sends a latency-bounded subset of at
+  most 100 locally selected candidates (and 40 KiB) to the Worker. AI-ranked
+  rows are placed first and every remaining local match is retained. The
+  Worker contract still accepts up to 250 candidates and 256 KiB.
 - The Worker fixes the Gemini endpoint, model, prompt, structured-output schema,
   thinking level, output limit, CORS origin, and rate limit. Client requests can
   supply only a query and bounded candidate records.

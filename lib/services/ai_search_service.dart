@@ -35,13 +35,18 @@ class _AISearchReleaseConfiguration {
 
 /// AI-assisted ranking that never sends credentials from the Flutter client.
 ///
-/// The complete local result pool is always retained. Only the first 250
-/// locally selected records from [aiCandidatePool] are sent to the Worker, and
-/// validated AI results are merged ahead of the remaining local matches.
+/// The complete local result pool is always retained. A latency-bounded subset
+/// of the best locally selected records from [aiCandidatePool] is sent to the
+/// Worker, and validated AI results are merged ahead of all remaining local
+/// matches.
 class AISearchService {
   static const int _maximumQueryLength = 500;
-  static const int _maximumCandidates = 250;
-  static const int _maximumRequestBytes = 256 * 1024;
+  // The Worker accepts up to 250 candidates and 256 KiB, but requests near
+  // those protocol limits can exceed the 30-second Gemini latency budget.
+  // One hundred candidates still gives Gemini twice as many choices as the 50
+  // records it may return while every other match remains in the local pool.
+  static const int _maximumCandidates = 100;
+  static const int _maximumRequestBytes = 40 * 1024;
 
   final AdvancedSearchService _localSearch;
   final AdvancedSearchService _candidateSearch;

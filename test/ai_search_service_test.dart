@@ -138,6 +138,115 @@ void main() {
     expect(result.tokenUsage?.cost, closeTo(0.000525, 0.000000001));
   });
 
+  test('bounds broad AI searches to 100 candidates and retains every match',
+      () async {
+    late String requestBody;
+    late List<dynamic> sentCandidates;
+    final client = MockClient((request) async {
+      requestBody = request.body;
+      final decoded = jsonDecode(requestBody) as Map<String, dynamic>;
+      sentCandidates = decoded['candidates'] as List<dynamic>;
+
+      return http.Response(
+        jsonEncode(
+          workerResponse(
+            ranked: const [
+              {'id': 99, 'relevance': 95, 'reason': 'Best semantic match'},
+            ],
+          ),
+        ),
+        200,
+      );
+    });
+    final generatedParts = List.generate(
+      130,
+      (index) => MroPart(
+        itemName: 'W-LAT-${index.toString().padLeft(3, '0')}',
+        description: 'Industrial bearing assembly option $index',
+        manufacturer: 'Maker ${index % 5}',
+      ),
+    );
+    final service = AISearchService(client: client, endpoint: endpoint);
+
+    final result = await service.search(generatedParts, 'bearing');
+
+    expect(sentCandidates, hasLength(100));
+    expect(
+      sentCandidates.map((value) => (value as Map<String, dynamic>)['id']),
+      orderedEquals(List.generate(100, (index) => index)),
+    );
+    expect(utf8.encode(requestBody).length, lessThanOrEqualTo(40 * 1024));
+    expect(result.results, hasLength(generatedParts.length));
+    expect(
+      result.results.map((value) => value.part.stableId).toSet(),
+      generatedParts.map((value) => value.stableId).toSet(),
+    );
+    expect(
+      result.results.first.part.itemName,
+      (sentCandidates[99] as Map<String, dynamic>)['itemNumber'],
+    );
+  });
+
+  test('uses UTF-8 bytes to bound rich candidate payloads without losing rows',
+      () async {
+    late String requestBody;
+    late List<dynamic> sentCandidates;
+    late String lastSentItemNumber;
+    final client = MockClient((request) async {
+      requestBody = request.body;
+      final decoded = jsonDecode(requestBody) as Map<String, dynamic>;
+      sentCandidates = decoded['candidates'] as List<dynamic>;
+      final lastCandidate = sentCandidates.last as Map<String, dynamic>;
+      lastSentItemNumber = lastCandidate['itemNumber'] as String;
+
+      return http.Response(
+        jsonEncode(
+          workerResponse(
+            ranked: [
+              {
+                'id': sentCandidates.length - 1,
+                'relevance': 91,
+                'reason': 'Rich candidate match',
+              },
+            ],
+          ),
+        ),
+        200,
+      );
+    });
+    final verboseDescription =
+        'bearing ${List.filled(490, '\u{1F527}').join()}';
+    final generatedParts = List.generate(
+      100,
+      (index) => MroPart(
+        itemName: 'W-RICH-${index.toString().padLeft(3, '0')}',
+        description: verboseDescription,
+        manufacturer: 'Rich Data Manufacturer',
+      ),
+    );
+    final service = AISearchService(client: client, endpoint: endpoint);
+
+    final result = await service.search(generatedParts, 'bearing');
+
+    expect(sentCandidates, isNotEmpty);
+    expect(sentCandidates.length, lessThan(100));
+    expect(utf8.encode(requestBody).length, lessThanOrEqualTo(40 * 1024));
+    expect(
+      sentCandidates.every(
+        (value) => ((value as Map<String, dynamic>)['description'] as String)
+            .runes
+            .isNotEmpty,
+      ),
+      isTrue,
+    );
+    expect(result.results, hasLength(generatedParts.length));
+    expect(
+      result.results.map((value) => value.part.stableId).toSet(),
+      generatedParts.map((value) => value.stableId).toSet(),
+    );
+    expect(result.results.first.part.itemName, lastSentItemNumber);
+  });
+
   test('sorts, deduplicates, and bounds-checks ranked records', () async {
     final client = MockClient((request) async {
       return http.Response(
