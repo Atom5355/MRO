@@ -335,6 +335,12 @@ void main() {
     expect(result.error, contains('timed out'));
   });
 
+  test('default client timeout remains above the Worker deadline', () {
+    final service = AISearchService(endpoint: endpoint);
+
+    expect(service.timeout, const Duration(seconds: 75));
+  });
+
   test('provider failure is sanitized and falls back locally', () async {
     const sensitiveBody = 'provider secret and raw model output';
     final client = MockClient(

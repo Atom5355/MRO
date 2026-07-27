@@ -8,7 +8,7 @@ export const GEMINI_MODEL = "gemini-3.6-flash";
 
 export const MAX_REQUEST_BYTES = 256 * 1024;
 export const MAX_UPSTREAM_RESPONSE_BYTES = 1024 * 1024;
-export const UPSTREAM_TIMEOUT_MS = 30_000;
+export const UPSTREAM_TIMEOUT_MS = 60_000;
 export const RETRY_DELAY_MS = 200;
 
 export const MAX_CANDIDATES = 250;

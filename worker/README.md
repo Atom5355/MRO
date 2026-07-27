@@ -1,6 +1,6 @@
 # MRO Gemini ranking Worker
 
-This Worker is the only component allowed to hold the Gemini API key. It accepts a bounded list of MRO search candidates from the Flutter client, asks the fixed `gemini-3.6-flash` model to rank them through Google's stable `v1` Interactions endpoint, validates the response, and returns sanitized ranking metadata.
+This Worker is the only component allowed to hold the Gemini API key. It accepts a bounded list of MRO search candidates from the Flutter client, asks the fixed `gemini-3.6-flash` model to rank them through Google's stable `v1` Interactions endpoint with low thinking, validates the response, and returns sanitized ranking metadata. Gemini receives a 60-second total deadline; the Flutter client waits 75 seconds so the Worker can return a sanitized timeout response.
 
 ## Public routes
 

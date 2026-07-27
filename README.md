@@ -15,8 +15,10 @@ receives or sends a Gemini API key.
   rows are placed first and every remaining local match is retained. The
   Worker contract still accepts up to 250 candidates and 256 KiB.
 - The Worker fixes the Gemini endpoint, model, prompt, structured-output schema,
-  thinking level, output limit, CORS origin, and rate limit. Client requests can
-  supply only a query and bounded candidate records.
+  low-latency thinking level, output limit, CORS origin, and rate limit. The
+  Worker allows Gemini up to 60 seconds and the browser waits 75 seconds so it
+  can receive a sanitized timeout response. Client requests can supply only a
+  query and bounded candidate records.
 
 ## Verification
 

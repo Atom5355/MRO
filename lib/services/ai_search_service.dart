@@ -42,7 +42,7 @@ class _AISearchReleaseConfiguration {
 class AISearchService {
   static const int _maximumQueryLength = 500;
   // The Worker accepts up to 250 candidates and 256 KiB, but requests near
-  // those protocol limits can exceed the 30-second Gemini latency budget.
+  // those protocol limits can exceed the Gemini latency budget.
   // One hundred candidates still gives Gemini twice as many choices as the 50
   // records it may return while every other match remains in the local pool.
   static const int _maximumCandidates = 100;
@@ -58,7 +58,7 @@ class AISearchService {
     http.Client? client,
     AdvancedSearchService? localSearch,
     String? endpoint,
-    this.timeout = const Duration(seconds: 30),
+    this.timeout = const Duration(seconds: 75),
   })  : _client = client ?? http.Client(),
         _localSearch = localSearch ?? AdvancedSearchService(),
         _candidateSearch = AdvancedSearchService(),
