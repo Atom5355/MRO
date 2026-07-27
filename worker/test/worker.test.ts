@@ -10,9 +10,11 @@ import {
 import type {
   RankCandidate,
   RankedRecord,
+  RankRequest,
   RankResponse,
   UsageSummary,
 } from "../src/contracts";
+import { buildGeminiRequestBody } from "../src/gemini";
 import worker from "../src/index";
 
 interface ErrorBody {
@@ -334,6 +336,34 @@ describe("request validation", () => {
 });
 
 describe("Gemini Interactions integration", () => {
+  it("keeps the response schema compact for 250 candidates", () => {
+    const request: RankRequest = {
+      query: "bearing",
+      candidates: Array.from({ length: 250 }, (_, id) =>
+        candidate({ id, itemNumber: `W-${id}` }),
+      ),
+    };
+
+    const body = buildGeminiRequestBody(request) as {
+      response_format: {
+        schema: {
+          properties: {
+            ranked: { items: { properties: { id: Record<string, unknown> } } };
+          };
+        };
+      };
+    };
+    const idSchema =
+      body.response_format.schema.properties.ranked.items.properties.id;
+
+    expect(idSchema).toEqual({
+      type: "integer",
+      minimum: 0,
+      maximum: 249,
+    });
+    expect(idSchema).not.toHaveProperty("enum");
+  });
+
   it("uses only the fixed v1 endpoint, model, secret header, and generation settings", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
@@ -363,10 +393,28 @@ describe("Gemini Interactions integration", () => {
           schema: {
             type: "object",
             properties: {
-              ranked: { type: "array", maxItems: 50 },
+              ranked: {
+                type: "array",
+                maxItems: 50,
+                items: {
+                  properties: {
+                    id: { type: "integer", minimum: 1, maximum: 2 },
+                  },
+                },
+              },
             },
           },
         });
+        const responseFormat = body.response_format as {
+          schema: {
+            properties: {
+              ranked: { items: { properties: { id: Record<string, unknown> } } };
+            };
+          };
+        };
+        expect(
+          responseFormat.schema.properties.ranked.items.properties.id,
+        ).not.toHaveProperty("enum");
         return new Response(
           JSON.stringify(
             interactionEnvelope({
@@ -579,6 +627,50 @@ describe("Gemini Interactions integration", () => {
     expect(body.error.code).toBe("AI_INVALID_RESPONSE");
     expect(body.error.message).not.toContain("Gemini");
     expect(body.error.message).not.toContain("not-json");
+  });
+
+  it("drops an in-range id that was not in a sparse candidate set", async () => {
+    mockSuccessfulGemini({
+      interpretation: "A bearing",
+      ranked: [
+        { id: 15, relevance: 99, reason: "Invented gap id" },
+        { id: 20, relevance: 80, reason: "Supplied id" },
+      ],
+    });
+    const requestBody = {
+      query: "bearing",
+      candidates: [candidate({ id: 10 }), candidate({ id: 20 })],
+    };
+
+    const response = await worker.fetch(jsonRankRequest(requestBody), makeEnv());
+    const body = await response.json<RankResponse>();
+
+    expect(response.status).toBe(200);
+    expect(body.ranked).toEqual([
+      { id: 20, relevance: 80, reason: "Supplied id" },
+    ]);
+  });
+
+  it("accepts a complete structured payload from an incomplete interaction", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          ...interactionEnvelope({
+            interpretation: "A bearing",
+            ranked: [{ id: 1, relevance: 90, reason: "Description match" }],
+          }),
+          status: "incomplete",
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const response = await worker.fetch(jsonRankRequest(), makeEnv());
+    const body = await response.json<RankResponse>();
+    expect(response.status).toBe(200);
+    expect(body.ranked).toEqual([
+      { id: 1, relevance: 90, reason: "Description match" },
+    ]);
   });
 
   it("fails safely when the required secret is absent", async () => {

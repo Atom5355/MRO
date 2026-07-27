@@ -44,6 +44,9 @@ interface RankedWithOrder extends RankedRecord {
 }
 
 function buildResponseSchema(candidateIds: readonly number[]): object {
+  const minimumCandidateId = Math.min(...candidateIds);
+  const maximumCandidateId = Math.max(...candidateIds);
+
   return {
     type: "object",
     additionalProperties: false,
@@ -61,7 +64,12 @@ function buildResponseSchema(candidateIds: readonly number[]): object {
           properties: {
             id: {
               type: "integer",
-              enum: candidateIds,
+              // Large enums make Gemini reject otherwise valid requests once
+              // the local search supplies a production-sized candidate pool.
+              // Keep the schema compact and enforce exact membership against
+              // the original candidate set when parsing the response.
+              minimum: minimumCandidateId,
+              maximum: maximumCandidateId,
             },
             relevance: {
               type: "integer",
@@ -185,7 +193,10 @@ function extractModelOutput(envelope: unknown): {
   output: unknown;
   usage: unknown;
 } {
-  if (!isRecord(envelope) || envelope.status !== "completed") {
+  if (
+    !isRecord(envelope) ||
+    (envelope.status !== "completed" && envelope.status !== "incomplete")
+  ) {
     throw new HttpError(
       502,
       "AI_INVALID_RESPONSE",
