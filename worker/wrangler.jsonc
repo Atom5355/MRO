@@ -5,6 +5,7 @@
   "compatibility_date": "2026-07-27",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  "preview_urls": false,
   "secrets": {
     "required": ["GEMINI_API_KEY"]
   },
@@ -12,7 +13,8 @@
     "enabled": true,
     "logs": {
       "enabled": true,
-      "head_sampling_rate": 1
+      "head_sampling_rate": 1,
+      "invocation_logs": false
     },
     "traces": {
       "enabled": true,

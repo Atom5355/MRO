@@ -102,3 +102,6 @@ npm run deploy:production
 After production deployment, set the GitHub repository variable `AI_SEARCH_ENDPOINT` to the full production workers.dev URL ending in `/v1/rank`, then redeploy the Flutter web app. Do not deploy the unnamed root Worker.
 
 Structured logs contain only request ID, duration, candidate count, HTTP status, and token counts. They intentionally exclude API keys, IP addresses, search queries, candidate content, provider bodies, and model output.
+Cloudflare invocation logs are disabled so the platform does not separately
+persist enriched request headers or client network metadata; sanitized custom
+logs and traces remain enabled.
